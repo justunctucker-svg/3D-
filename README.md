@@ -29,11 +29,11 @@ Open `revolver.html` in a browser. Libraries load from cdnjs and jsDelivr.
 
 # Abrams Drone Tank
 
-`tank.html` is our own AbramsX-style tank with a PERCH drone launcher, on a 114-second loop:
+`tank.html` is our own AbramsX-style tank with a PERCH drone launcher, on a 118-second loop:
 
 - **Breakdown:** an exploded view, then x-ray passes through the three-person crew capsule in the front hull, the unmanned turret and its cassette autoloader, the turret roof (30 mm remote cannon, sights, active protection), the hybrid diesel-electric drive, and the running gear.
 - **PERCH:** sits folded on the turret roof (rear left) and carries three Switchblade 300s and one Switchblade 600.
 - **Switchblade close-up:** folded wings, fins and propeller, and how they deploy.
-- **Demo:** the 120 mm gun destroys one shed, then four drones launch, loiter with a drone-camera view, and each destroys its own shed.
+- **Demo:** a slow-motion chase of an APFSDS round from the 120 mm gun into the first shed, then four drones launch forward from PERCH, loiter with a drone-camera view, and each destroys its own shed.
 
 `tank-short.mp4` is the 1080×1920 Shorts render.
