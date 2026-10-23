@@ -37,3 +37,7 @@ Open `revolver.html` in a browser. Libraries load from cdnjs and jsDelivr.
 - **Demo:** a slow-motion chase of an APFSDS round from the 120 mm gun into the first shed, then four drones launch forward from PERCH, loiter with a drone-camera view, and each destroys its own shed.
 
 `tank-short.mp4` is the 1080×1920 Shorts render.
+
+# SIG XM250 X-Ray
+
+`xm250.html` covers the XM250 light machine gun on a 56-second loop: the bipod deploying; a full reload (feed cover, 100-round pouch, belt on the feed tray, charging handle locking the open bolt back); an x-ray slow-motion firing cycle (sear, recoil spring, bolt carrier stripping and chambering a round, short-stroke gas piston, ejection and belt advance); the 6.8×51 hybrid case; full-auto bursts at a plastic range dummy; and a slow-motion bullet chase. `xm250-short.mp4` is the 1080×1920 Shorts render.

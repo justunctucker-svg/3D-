@@ -1,0 +1,965 @@
+<title>XM250 X-Ray</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  /* Layout: full-bleed WebGL stage; title + gauges in the top corners, caption and transport bar along the bottom edge */
+  :root {
+    --ink: #0a0b0d;
+    --panel: rgba(14, 16, 19, 0.72);
+    --line: rgba(196, 210, 222, 0.16);
+    --fg: #e8ecef;
+    --muted: #8c959e;
+    --xray: #74d4ff;
+    --flash: #ffb24a;
+    --display: "Barlow Condensed", "Arial Narrow", "Helvetica Neue", sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+    color-scheme: dark;
+  }
+  html, body { height: 100%; }
+  body {
+    background: var(--ink);
+    color: var(--fg);
+    font-family: var(--mono);
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+  #stage { position: fixed; inset: 0; }
+  #stage canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+  #stage canvas:active { cursor: grabbing; }
+
+  .hud {
+    position: fixed; inset: 0;
+    pointer-events: none;
+    display: flex; flex-direction: column; justify-content: space-between; gap: 16px;
+    padding-block: max(16px, env(safe-area-inset-top, 0px)) max(14px, env(safe-area-inset-bottom, 0px));
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+  }
+  .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+  .brand h1 {
+    margin: 0;
+    font-family: var(--display); font-weight: 700;
+    font-size: clamp(22px, 3.2vw, 34px); line-height: 0.95;
+    letter-spacing: 0.02em; text-transform: uppercase;
+  }
+  .brand p {
+    margin: 6px 0 0; color: var(--muted);
+    font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase;
+  }
+  .mode {
+    display: inline-block; margin-top: 10px; padding: 3px 8px;
+    border: 1px solid var(--xray); color: var(--xray);
+    font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase;
+    opacity: 0; transition: opacity .3s;
+  }
+  .mode.on { opacity: 1; }
+
+  .gauges {
+    display: grid; grid-template-columns: auto auto; column-gap: 14px; row-gap: 5px;
+    padding: 10px 12px; background: var(--panel); border: 1px solid var(--line);
+    font-size: 11px; font-variant-numeric: tabular-nums;
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  }
+  .gauges dt { color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; font-size: 10px; align-self: center; }
+  .gauges dd { margin: 0; text-align: right; min-width: 9ch; }
+  .pips { display: inline-flex; gap: 4px; vertical-align: middle; }
+  .pips i { width: 8px; height: 8px; border-radius: 50%; border: 1px solid #c9a24f; background: #c9a24f; }
+  .pips i.spent { background: transparent; border-color: #6a5a3a; }
+  .pips i.empty { background: transparent; border-color: #3a3f45; }
+
+  .bottom { display: flex; flex-direction: column; gap: 12px; }
+  .caption { max-width: 46ch; min-height: 92px; display: flex; flex-direction: column; justify-content: flex-end; }
+  .caption .step {
+    font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--flash);
+    min-height: 1.3em;
+  }
+  .caption .step.x { color: var(--xray); }
+  .caption .text {
+    margin: 4px 0 0;
+    font-family: var(--display); font-weight: 600;
+    font-size: clamp(19px, 2.4vw, 27px); line-height: 1.12; text-wrap: balance;
+    text-shadow: 0 1px 12px rgba(0,0,0,.6);
+  }
+  .caption > * { transition: opacity .25s; }
+  .caption.swap > * { opacity: 0; }
+
+  .transport {
+    pointer-events: auto;
+    display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px;
+    padding: 8px 10px; background: var(--panel); border: 1px solid var(--line);
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  }
+  .transport button {
+    font: 500 11px/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--fg); background: transparent; border: 1px solid var(--line);
+    padding: 8px 10px; min-height: 32px; cursor: pointer; white-space: nowrap;
+  }
+  .transport button:hover { border-color: var(--muted); }
+  .transport button:focus-visible, .scrub input:focus-visible { outline: 2px solid var(--xray); outline-offset: 2px; }
+  .transport button[aria-pressed="true"] { border-color: var(--xray); color: var(--xray); }
+  #play { width: 40px; padding: 0; display: grid; place-items: center; }
+  #play svg { width: 12px; height: 12px; fill: currentColor; }
+  .scrub { flex: 1 1 220px; min-width: 0; position: relative; height: 32px; display: flex; align-items: center; }
+  .scrub input { width: 100%; margin: 0; appearance: none; -webkit-appearance: none; background: transparent; height: 32px; position: relative; z-index: 1; cursor: pointer; }
+  .scrub input::-webkit-slider-runnable-track { height: 2px; background: transparent; }
+  .scrub input::-moz-range-track { height: 2px; background: transparent; }
+  .scrub input::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 12px; margin-top: -5px; border-radius: 50%; background: var(--fg); border: 0; }
+  .scrub input::-moz-range-thumb { width: 12px; height: 12px; border-radius: 50%; background: var(--fg); border: 0; }
+  .track { position: absolute; left: 6px; right: 6px; top: 15px; height: 2px; background: var(--line); }
+  .track .fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--muted); }
+  .track .seg { position: absolute; top: -3px; height: 8px; border-left: 1px solid var(--muted); }
+  .track .seg.x { background: rgba(116, 212, 255, 0.18); border-left-color: var(--xray); }
+  .time { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 9ch; text-align: right; }
+  .hint { font-size: 10px; color: var(--muted); letter-spacing: 0.08em; }
+
+  /* Shorts recording layout (9:16): keeps text clear of the YouTube Shorts overlay at the bottom and right edge */
+  body.video .transport { display: none; }
+  body.video .hud { padding-top: 30px; }
+  body.video .top { flex-direction: column; gap: 0; }
+  body.video .brand h1 { font-size: 30px; }
+  body.video .brand p { display: block; font-size: 9px; }
+  body.video .mode { position: absolute; top: 34px; right: 16px; margin: 0; }
+  body.video .gauges {
+    position: absolute; left: 16px; right: 16px; top: 66%;
+    grid-template-columns: none; grid-template-rows: auto auto; grid-auto-flow: column;
+    column-gap: 8px; row-gap: 3px; padding: 8px 10px; font-size: 10px;
+  }
+  body.video .gauges dt { font-size: 8px; }
+  body.video .gauges dd { text-align: left; min-width: 0; white-space: nowrap; }
+  body.video .bottom { position: absolute; top: 128px; left: 16px; right: 60px; }
+  body.video .caption { min-height: 0; justify-content: flex-start; }
+  body.video .caption .text { font-size: 19px; }
+  body.video .caption > * { transition: none; }
+
+  @media (max-width: 640px) {
+    .gauges { font-size: 10px; padding: 8px 10px; column-gap: 10px; }
+    .gauges dd { min-width: 7ch; }
+    .brand p { display: none; }
+    .caption { min-height: 76px; }
+    .hint { display: none; }
+  }
+  @media (max-width: 420px) {
+    .top { flex-direction: column; }
+  }
+
+  [hidden] { display: none !important; }
+  .hud { z-index: 2; }
+  #callouts { position: fixed; inset: 0; pointer-events: none; z-index: 1; overflow: hidden; }
+  .callout { position: absolute; left: 0; top: 0; opacity: 0; font: 500 10.5px/1 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg); }
+  .callout .dot { position: absolute; left: -4px; top: -4px; width: 8px; height: 8px; border-radius: 50%; background: var(--flash); box-shadow: 0 0 0 3px rgba(0,0,0,0.35); }
+  .callout .line { position: absolute; left: 0; top: 0; height: 1px; background: rgba(232,236,239,0.75); transform-origin: 0 0; }
+  .callout .tag { position: absolute; left: 0; top: 0; white-space: nowrap; padding: 4px 7px; background: rgba(12,14,17,0.82); border: 1px solid var(--line); border-left: 2px solid var(--flash); }
+  .callout.x .dot { background: var(--xray); }
+  .callout.x .tag { border-left-color: var(--xray); }
+  #pip { position: fixed; top: 170px; right: max(16px, env(safe-area-inset-right, 0px)); width: min(34vw, 320px); aspect-ratio: 16 / 10; z-index: 3; pointer-events: none;
+    border: 1px solid rgba(255, 90, 80, 0.8); backdrop-filter: grayscale(1) contrast(1.3) brightness(1.7); -webkit-backdrop-filter: grayscale(1) contrast(1.3) brightness(1.7); }
+  #pip svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  #pip canvas { position: absolute; inset: 0; width: 100%; height: 100%; image-rendering: pixelated; }
+  #pip .lbl { position: absolute; left: 7px; top: 6px; font: 500 9.5px/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: #ff6a5a; text-shadow: 0 0 4px #000; }
+  #pip .lock { top: auto; bottom: 6px; }
+  .dpips { display: inline-flex; gap: 4px; align-items: center; vertical-align: middle; }
+  .dpips i { width: 8px; height: 8px; border-radius: 50%; background: #d4d9de; }
+  .dpips i.big { width: 12px; height: 12px; }
+  .dpips i.fly { background: transparent; box-shadow: inset 0 0 0 1.5px var(--xray); }
+  .dpips i.done { background: #3a3f45; }
+  body.video #pip { top: 268px; right: 16px; width: 200px; }
+  body.video .callout { font-size: 9.5px; }
+  @media (max-width: 640px) { #pip { top: 200px; width: 46vw; } }
+</style>
+<div id="stage"></div>
+<div id="callouts"></div>
+
+<div class="hud">
+  <div class="top">
+    <div class="brand">
+      <h1>SIG XM250<br>Light MG</h1>
+      <p>6.8×51 mm · belt-fed · open bolt · ~800 rpm</p>
+      <span class="mode" id="modeTag">X-ray view</span>
+    </div>
+    <dl class="gauges" aria-label="Live readouts">
+      <dt>Stage</dt><dd id="gStage">Ready</dd>
+      <dt>Belt</dt><dd id="gBelt">Empty</dd>
+      <dt>Rate</dt><dd id="gRate">—</dd>
+      <dt>Bullet</dt><dd id="gVel">—</dd>
+    </dl>
+  </div>
+
+  <div class="bottom">
+    <div class="caption" id="caption" aria-live="polite">
+      <div class="step" id="capStep"></div>
+      <p class="text" id="capText"></p>
+    </div>
+    <div class="transport">
+      <button id="play" aria-label="Pause"><svg viewBox="0 0 12 12" id="playIcon"><rect x="1" y="1" width="3.5" height="10"/><rect x="7.5" y="1" width="3.5" height="10"/></svg></button>
+      <div class="scrub">
+        <div class="track" id="track"><div class="fill" id="fill"></div></div>
+        <input type="range" id="scrub" min="0" max="1000" value="0" aria-label="Timeline">
+      </div>
+      <span class="time" id="time">0.0 s</span>
+      <button id="xray" aria-pressed="false" title="X-ray: auto, on, off">X-ray: Auto</button>
+      <button id="speed" title="Playback speed">1×</button>
+      <button id="cam" aria-pressed="false" title="Drag the scene to orbit freely">Camera: Director</button>
+      <span class="hint">Drag to orbit</span>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/GammaCorrectionShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+
+<script>
+(() => {
+  const T = THREE;
+  const PI = Math.PI;
+  const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+  const lerp = (a, b, k) => a + (b - a) * k;
+  const smooth = k => { k = clamp(k); return k * k * (3 - 2 * k); };
+  const easeOut = k => { k = clamp(k); return 1 - Math.pow(1 - k, 3); };
+  const easeIn = k => { k = clamp(k); return k * k * k; };
+  const span = (t, a, b) => clamp((t - a) / (b - a));
+  const pulse = (t, a, b, c, d) => smooth(span(t, a, b)) * (1 - smooth(span(t, c, d)));
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const rand = (i, j) => { const x = Math.sin(i * 127.1 + j * 311.7) * 43758.5453; return x - Math.floor(x); };
+  const V = (x, y, z) => new T.Vector3(x, y, z);
+
+  // ---------------------------------------------------------------- renderer
+  const stage = document.getElementById('stage');
+  const renderer = new T.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.toneMapping = T.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.0;
+  stage.appendChild(renderer.domElement);
+  const scene = new T.Scene();
+  const camera = new T.PerspectiveCamera(32, 1, 0.1, 4000);
+  const HORIZON = new T.Color(0.40, 0.44, 0.48), XRAY_FOG = new T.Color(0.0, 0.01, 0.02);
+  scene.fog = new T.Fog(HORIZON.clone(), 220, 2200);
+
+  {
+    const env = new T.Scene();
+    env.add(new T.Mesh(new T.BoxGeometry(60, 30, 60), new T.MeshBasicMaterial({ color: 0x15171a, side: T.BackSide })));
+    const box = (w, h, x, y, z, ry, rx, c) => { const m = new T.Mesh(new T.PlaneGeometry(w, h), new T.MeshBasicMaterial({ color: c, side: T.DoubleSide })); m.position.set(x, y, z); m.rotation.set(rx || 0, ry || 0, 0); env.add(m); };
+    box(40, 40, 0, 14.5, 0, 0, PI / 2, new T.Color(0.75, 0.8, 0.9));
+    box(4, 22, -24, 2, 8, PI / 2.6, 0, new T.Color(1.2, 1.2, 1.25));
+    box(30, 3, 0, 4, -28, 0, 0, new T.Color(0.9, 0.8, 0.65));
+    scene.environment = new T.PMREMGenerator(renderer).fromScene(env, 0.02).texture;
+  }
+  const sun = new T.DirectionalLight(0xfff0dc, 1.7); sun.position.set(-60, 90, 70); scene.add(sun);
+  scene.add(new T.HemisphereLight(0xc7d6e6, 0x5b5242, 0.45));
+
+  const bgMat = new T.ShaderMaterial({
+    uniforms: { uX: { value: 0 }, uRes: { value: new T.Vector2(1, 1) } },
+    vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.9999, 1.0); }',
+    fragmentShader: `
+      varying vec2 vUv; uniform float uX; uniform vec2 uRes;
+      void main(){
+        vec3 solid = mix(vec3(0.40, 0.44, 0.48), vec3(0.16, 0.24, 0.34), smoothstep(0.3, 1.0, vUv.y));
+        vec2 c = vUv - vec2(0.5, 0.56); c.x *= uRes.x / uRes.y; float r = length(c);
+        vec3 xr = mix(vec3(0.006, 0.032, 0.055), vec3(0.0, 0.004, 0.009), smoothstep(0.0, 0.95, r));
+        vec2 g = gl_FragCoord.xy / (uRes.y / 18.0); vec2 f = abs(fract(g) - 0.5);
+        float line = 1.0 - smoothstep(0.0, 0.035, min(f.x, f.y));
+        xr += vec3(0.010, 0.040, 0.060) * line * (1.0 - smoothstep(0.2, 1.0, r));
+        gl_FragColor = vec4(mix(solid, xr, uX), 1.0);
+      }`,
+    depthWrite: false, depthTest: false
+  });
+  const bg = new T.Mesh(new T.PlaneGeometry(2, 2), bgMat);
+  bg.frustumCulled = false; bg.renderOrder = -10; scene.add(bg);
+
+  // ---------------------------------------------------------------- geometry helpers
+  function autoSmooth(geo, angle) {
+    const g = geo.index ? geo.toNonIndexed() : geo;
+    const p = g.attributes.position, n = p.count, faces = n / 3;
+    const fa = new Float32Array(faces * 3), fu = new Float32Array(faces * 3);
+    const a = new T.Vector3(), b = new T.Vector3(), c = new T.Vector3();
+    for (let f = 0; f < faces; f++) {
+      a.fromBufferAttribute(p, f * 3); b.fromBufferAttribute(p, f * 3 + 1); c.fromBufferAttribute(p, f * 3 + 2);
+      b.sub(a); c.sub(a); b.cross(c);
+      fa[f * 3] = b.x; fa[f * 3 + 1] = b.y; fa[f * 3 + 2] = b.z;
+      b.normalize(); fu[f * 3] = b.x; fu[f * 3 + 1] = b.y; fu[f * 3 + 2] = b.z;
+    }
+    const groups = new Map();
+    for (let i = 0; i < n; i++) {
+      const k = Math.round(p.getX(i) * 1e4) + ',' + Math.round(p.getY(i) * 1e4) + ',' + Math.round(p.getZ(i) * 1e4);
+      let l = groups.get(k); if (!l) groups.set(k, l = []); l.push(i);
+    }
+    const cosT = Math.cos(angle * PI / 180), out = new Float32Array(n * 3);
+    groups.forEach(list => {
+      for (const i of list) {
+        const fi = (i / 3 | 0) * 3; let x = 0, y = 0, z = 0;
+        for (const j of list) {
+          const fj = (j / 3 | 0) * 3;
+          if (fu[fi] * fu[fj] + fu[fi + 1] * fu[fj + 1] + fu[fi + 2] * fu[fj + 2] >= cosT) { x += fa[fj]; y += fa[fj + 1]; z += fa[fj + 2]; }
+        }
+        const l = Math.hypot(x, y, z) || 1; out[i * 3] = x / l; out[i * 3 + 1] = y / l; out[i * 3 + 2] = z / l;
+      }
+    });
+    g.setAttribute('normal', new T.BufferAttribute(out, 3));
+    return g;
+  }
+  // side profile (x, y) extruded across z, centred
+  function extrudeZ(pts, depth, bevel = 0.04) {
+    const s = new T.Shape(); pts.forEach(([x, y], i) => i ? s.lineTo(x, y) : s.moveTo(x, y));
+    const g = new T.ExtrudeGeometry(s, { depth, bevelEnabled: bevel > 0, bevelThickness: bevel, bevelSize: bevel, bevelSegments: 2 });
+    g.translate(0, 0, -depth / 2); return autoSmooth(g, 40);
+  }
+  // top-view outline (x, z) extruded upward from y = 0
+  function extrudeY(pts, height, bevel = 0.05) {
+    const s = new T.Shape(); pts.forEach(([x, z], i) => i ? s.lineTo(x, -z) : s.moveTo(x, -z));
+    const g = new T.ExtrudeGeometry(s, { depth: height, bevelEnabled: bevel > 0, bevelThickness: bevel, bevelSize: bevel, bevelSegments: 2 });
+    g.rotateX(-PI / 2); g.translate(0, bevel, 0); return autoSmooth(g, 40);
+  }
+  const alongX = g => g.rotateZ(-PI / 2);
+  const lathe = (pts, seg = 32) => alongX(new T.LatheGeometry(pts.map(([r, x]) => new T.Vector2(r, x)), seg));
+  const cylX = (r, len, seg = 20, r2) => alongX(new T.CylinderGeometry(r2 === undefined ? r : r2, r, len, seg));
+  const cylZ = (r, len, seg = 24) => new T.CylinderGeometry(r, r, len, seg).rotateX(PI / 2);
+  const canvasTex = (w, h, draw) => { const cv = document.createElement('canvas'); cv.width = w; cv.height = h; draw(cv.getContext('2d'), w, h); const t = new T.CanvasTexture(cv); t.wrapS = t.wrapT = T.RepeatWrapping; return t; };
+
+  // ---------------------------------------------------------------- materials
+  const std = (color, metalness, roughness, extra = {}) => { const m = new T.MeshStandardMaterial(Object.assign({ color, metalness, roughness }, extra)); m.color.convertSRGBToLinear(); return m; };
+  const tan = std(0xa98d66, 0.25, 0.55), tanDark = std(0x8d7553, 0.2, 0.6), fabric = std(0x9c8a68, 0, 0.95);
+  const black = std(0x1d1e20, 0.6, 0.45), blackMatte = std(0x262729, 0.3, 0.7), steelM = std(0x8c9197, 0.9, 0.3);
+  const glass = std(0x0a0e12, 0.9, 0.08), redDot = new T.MeshBasicMaterial({ color: new T.Color(3, 0.3, 0.2), toneMapped: false });
+  const brassM = std(0xc99a45, 1, 0.3), caseHead = std(0xb9bec4, 0.95, 0.3), copperM = std(0xc27a4e, 1, 0.32);
+  const springM = std(0xb0b4b8, 0.9, 0.35), boltM = std(0x3a3d41, 0.85, 0.35);
+  const dummyMat = std(0xd2702e, 0.05, 0.6), dummyDark = std(0x2a2b2d, 0.3, 0.6), standMat = std(0x55595e, 0.7, 0.45);
+  const groundTex = canvasTex(256, 256, (x, w, h) => {
+    x.fillStyle = '#6a5c44'; x.fillRect(0, 0, w, h);
+    for (let i = 0; i < 2600; i++) { const g = 60 + rand(i, 1) * 60; x.fillStyle = `rgba(${g + 30},${g + 18},${g * 0.6},${0.25 + rand(i, 2) * 0.4})`; x.fillRect(rand(i, 3) * w, rand(i, 4) * h, 1 + rand(i, 5) * 3, 1 + rand(i, 6) * 3); }
+  });
+  groundTex.repeat.set(400, 400); groundTex.encoding = T.sRGBEncoding;
+  const groundMat = std(0x9b8f78, 0, 0.95, { map: groundTex, envMapIntensity: 0.3 });
+  const bermMat = std(0x7a6648, 0, 0.95, { map: groundTex, envMapIntensity: 0.3 });
+  const sandMat = std(0x8f7c5a, 0, 0.95);
+
+  const xrayMats = [];
+  function xray(color, fillA, power, tag) {
+    const m = new T.ShaderMaterial({
+      uniforms: { uColor: { value: new T.Color(color) }, uOpacity: { value: 0 }, uFill: { value: fillA }, uPow: { value: power } },
+      vertexShader: 'varying vec3 vN; varying vec3 vV; void main(){ vec4 mv = modelViewMatrix * vec4(position, 1.0);\n#ifdef USE_INSTANCING\n mv = modelViewMatrix * instanceMatrix * vec4(position, 1.0);\n#endif\n vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz); gl_Position = projectionMatrix * mv; }',
+      fragmentShader: 'varying vec3 vN; varying vec3 vV; uniform vec3 uColor; uniform float uOpacity; uniform float uFill; uniform float uPow; void main(){ float f = pow(1.0 - abs(dot(normalize(vN), normalize(vV))), uPow); gl_FragColor = vec4(uColor, (f * 0.6 + uFill) * uOpacity * 0.6); }',
+      transparent: true, depthWrite: false, blending: T.AdditiveBlending, side: T.DoubleSide
+    });
+    m.userData.tag = tag; xrayMats.push(m); return m;
+  }
+  const xBody = xray(0x5cc8ff, 0.025, 2.2, 'body');
+  const xSoft = xray(0x3b8fd0, 0.02, 2.0, 'soft');
+  const xInner = xray(0xd8f3ff, 0.06, 1.6, 'inner');
+  const xSpring = xray(0xffd27a, 0.35, 1.2, 'inner');
+  const xBore = xray(0x9fe4ff, 0.05, 1.0, 'body');
+
+  const shells = [], internals = [];
+  const fadeMats = [tan, tanDark, fabric, black, blackMatte, glass];
+  const envMats = [groundMat, bermMat, sandMat];
+  function part(geo, mat, xmat, parent, pos, rot) {
+    const g = new T.Group();
+    const s1 = new T.Mesh(geo, mat), gh = new T.Mesh(geo, xmat);
+    gh.renderOrder = 5; g.add(s1); g.add(gh); parent.add(g);
+    if (pos) g.position.set(...pos);
+    if (rot) g.rotation.set(...rot);
+    shells.push({ solid: s1, ghost: gh }); return g;
+  }
+  function ghostOnly(geo, xmat, parent, pos, rot) {
+    const m = new T.Mesh(geo, xmat); m.renderOrder = 6; parent.add(m); internals.push(m);
+    if (pos) m.position.set(...pos);
+    if (rot) m.rotation.set(...rot);
+    return m;
+  }
+  function solid(geo, mat, parent, pos, rot) {
+    const m = new T.Mesh(geo, mat); parent.add(m);
+    if (pos) m.position.set(...pos);
+    if (rot) m.rotation.set(...rot);
+    return m;
+  }
+  const box = (w, h, d) => new T.BoxGeometry(w, h, d);
+
+  // ---------------------------------------------------------------- range: ground, berm, sandbag
+  // units: 1 = 10 cm. Gun sits at the origin pointing +x; the dummy stands 30 m downrange.
+  const ground = new T.Mesh(new T.PlaneGeometry(6000, 6000), groundMat); ground.rotation.x = -PI / 2; scene.add(ground);
+  const berm = new T.Mesh(new T.SphereGeometry(1, 32, 16, 0, PI * 2, 0, PI / 2), bermMat); berm.scale.set(45, 38, 260); berm.position.set(355, 0, 0); scene.add(berm);
+  const sandbag = new T.Mesh(new T.SphereGeometry(1, 20, 12), sandMat); sandbag.scale.set(1.6, 1.25, 2.4); sandbag.position.set(-6.0, 1.25, 0); scene.add(sandbag);
+  const sandbag2 = new T.Mesh(new T.SphereGeometry(1, 20, 12), sandMat); sandbag2.scale.set(1.5, 0.7, 2.1); sandbag2.position.set(-5.6, 0.6, 2.6); scene.add(sandbag2);
+  const shadowTex = canvasTex(128, 128, (x, w) => { const g = x.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2); g.addColorStop(0, 'rgba(0,0,0,0.55)'); g.addColorStop(0.6, 'rgba(0,0,0,0.3)'); g.addColorStop(1, 'rgba(0,0,0,0)'); x.fillStyle = g; x.fillRect(0, 0, w, w); });
+  const shadowMat = new T.MeshBasicMaterial({ map: shadowTex, transparent: true, depthWrite: false, fog: false });
+  const contactShadow = (w, d, x, z) => { const m = new T.Mesh(new T.PlaneGeometry(w, d), shadowMat); m.rotation.x = -PI / 2; m.position.set(x, 0.03, z); scene.add(m); return m; };
+  contactShadow(22, 5, 2, 0); contactShadow(7, 6, 300, 0);
+
+  // ---------------------------------------------------------------- XM250 (gun space: bore along +x at y = 0.4, +z = left side of the gun)
+  const BORE_Y = 0.4, CHAMBER_X = 3.2, MUZZLE_X = 12.45;
+  const PIVOT = V(-6.0, -1.4, 0);                         // stock toe resting on the sandbag
+  const rig = new T.Group(); rig.position.set(-6.0, 2.5, 0); scene.add(rig);
+  const gun = new T.Group(); gun.position.set(6.0, 1.4, 0); rig.add(gun);
+  // receiver
+  part(extrudeZ([[-3.0, 1.05], [3.2, 1.05], [3.2, -0.2], [2.6, -0.65], [0.4, -0.65], [0.2, -1.2], [-2.3, -1.2], [-2.6, -0.65], [-3.0, -0.65]], 0.95, 0.05), tan, xBody, gun);
+  // M-LOK handguard with slots
+  part(extrudeZ([[3.2, 1.0], [6.8, 1.0], [6.8, -0.2], [3.2, -0.2]], 0.86, 0.05), tan, xBody, gun);
+  for (let i = 0; i < 5; i++) [1, -1].forEach(s => { solid(box(0.45, 0.14, 0.02), blackMatte, gun, [3.7 + i * 0.6, 0.62, s * 0.49]); solid(box(0.45, 0.14, 0.02), blackMatte, gun, [3.7 + i * 0.6, 0.18, s * 0.49]); });
+  // top rail (rear on the receiver, front on the handguard), the feed cover carries its own piece
+  const rail = (x0, x1, parent, y) => { part(box(x1 - x0, 0.16, 0.5), black, xBody, parent, [(x0 + x1) / 2, y, 0]); for (let x = x0 + 0.08; x < x1; x += 0.16) solid(box(0.07, 0.06, 0.52), black, parent, [x, y + 0.1, 0]); };
+  rail(-2.9, -0.25, gun, 1.13); rail(3.2, 6.7, gun, 1.08);
+  // feed cover, hinged at its front edge
+  const cover = new T.Group(); cover.position.set(2.75, 1.05, 0); gun.add(cover);
+  part(box(2.95, 0.22, 0.95), tan, xBody, cover, [-1.47, 0.08, 0]);
+  rail(-2.9, -0.1, cover, 0.27);
+  part(box(0.5, 0.14, 0.2), black, xBody, cover, [-2.75, 0.06, 0.55]);          // cover latch
+  // holographic sight on the rear rail
+  const optic = new T.Group(); optic.position.set(-1.25, 1.25, 0); gun.add(optic);
+  part(box(1.2, 0.18, 0.62), tanDark, xBody, optic, [0, 0.12, 0]);
+  part(box(1.0, 0.62, 0.62), tan, xBody, optic, [0, 0.52, 0]);
+  solid(box(0.02, 0.4, 0.42), glass, optic, [-0.51, 0.55, 0]); solid(box(0.02, 0.4, 0.42), glass, optic, [0.51, 0.55, 0]);
+  solid(new T.SphereGeometry(0.03, 8, 6), redDot, optic, [0.3, 0.55, 0]);
+  // flip-up iron sights
+  part(box(0.25, 0.4, 0.3), black, xBody, gun, [-2.6, 1.42, 0]); part(box(0.25, 0.4, 0.3), black, xBody, gun, [6.4, 1.36, 0]);
+  // stock: skeletonized, collapsible, with butt pad
+  part(cylX(0.22, 1.2, 16), tanDark, xBody, gun, [-3.55, 0.45, 0]);
+  { const sh = new T.Shape(); [[-3.9, 1.0], [-6.35, 1.0], [-6.35, -1.45], [-5.85, -1.45], [-4.5, -0.15], [-3.9, -0.15]].forEach(([x, y], i) => i ? sh.lineTo(x, y) : sh.moveTo(x, y));
+    const hole = new T.Path(); [[-5.95, 0.6], [-5.95, -0.9], [-4.85, 0.1], [-4.85, 0.6]].forEach(([x, y], i) => i ? hole.lineTo(x, y) : hole.moveTo(x, y)); sh.holes.push(hole);
+    const g = new T.ExtrudeGeometry(sh, { depth: 0.8, bevelEnabled: true, bevelThickness: 0.05, bevelSize: 0.05, bevelSegments: 2 }); g.translate(0, 0, -0.4);
+    part(autoSmooth(g, 40), tan, xBody, gun); }
+  part(box(0.12, 2.5, 0.85), blackMatte, xBody, gun, [-6.42, -0.22, 0]);
+  // pistol grip, trigger guard, trigger
+  part(extrudeZ([[-1.95, -1.15], [-1.15, -1.15], [-1.55, -3.0], [-2.4, -3.0]], 0.7, 0.12), tan, xBody, gun);
+  part(extrudeZ([[-1.1, -1.15], [-0.95, -1.15], [-0.75, -1.75], [-0.1, -1.75], [-0.1, -1.6], [-0.65, -1.6], [-0.85, -1.15]], 0.3, 0.03), tan, xBody, gun);
+  const trigger = new T.Group(); trigger.position.set(-0.55, -1.15, 0); gun.add(trigger);
+  part(extrudeZ([[-0.05, 0.05], [0.08, 0.05], [0.06, -0.3], [-0.1, -0.45], [-0.13, -0.38], [-0.03, -0.28]], 0.14, 0.02), black, xInner, trigger);
+  // charging handle (left side)
+  const chHandle = new T.Group(); chHandle.position.set(1.9, 0.35, 0.5); gun.add(chHandle);
+  part(box(0.35, 0.18, 0.3), black, xBody, chHandle, [0, 0, 0.12]);
+  // ejection port with dust cover (right side)
+  const dustCover = new T.Group(); dustCover.position.set(1.5, 0.05, -0.49); gun.add(dustCover);
+  part(box(1.0, 0.5, 0.03), black, xBody, dustCover, [0, 0.25, 0]);
+  // barrel, gas block, suppressor
+  part(cylX(0.13, 6.2, 16), black, xBody, gun, [CHAMBER_X + 3.1, BORE_Y, 0]);
+  ghostOnly(cylX(0.06, 9.3, 12), xBore, gun, [CHAMBER_X + 4.65, BORE_Y, 0]);
+  part(box(0.35, 0.65, 0.4), black, xBody, gun, [6.05, 0.62, 0]);
+  part(lathe([[0.15, 9.35], [0.26, 9.45], [0.26, 9.75], [0.25, 9.8], [0.25, 12.35], [0.2, 12.45], [0.06, 12.45]], 24), tan, xBody, gun);
+  part(lathe([[0.27, 9.4], [0.28, 9.45], [0.28, 9.85], [0.27, 9.9]], 24), black, xBody, gun);
+  // bipod under the front of the handguard: legs fold back, swing down, splay and extend
+  const bipod = new T.Group(); bipod.position.set(6.3, -0.3, 0); gun.add(bipod);
+  part(box(0.5, 0.3, 0.6), black, xBody, bipod, [0, 0, 0]);
+  const legs = [1, -1].map(s => {
+    const hinge = new T.Group(); hinge.position.set(0, -0.05, s * 0.18); bipod.add(hinge);
+    part(new T.CylinderGeometry(0.08, 0.08, 1.9, 10).translate(0, -0.95, 0), tanDark, xBody, hinge);
+    const lower = new T.Group(); hinge.add(lower);
+    part(new T.CylinderGeometry(0.055, 0.055, 1.7, 10).translate(0, -1.6, 0), black, xBody, lower);
+    part(box(0.35, 0.08, 0.2), blackMatte, xBody, lower, [0, -2.45, 0]);
+    return { hinge, lower, s };
+  });
+
+  // ---------------------------------------------------------------- internals: bolt carrier group, op rod, piston, recoil spring, sear
+  const carrier = new T.Group(); gun.add(carrier);           // x = 0 when the bolt is closed on the chamber
+  part(cylX(0.14, 0.6, 14), boltM, xInner, carrier, [CHAMBER_X - 0.3, BORE_Y, 0]);
+  part(box(2.3, 0.38, 0.45), boltM, xInner, carrier, [CHAMBER_X - 1.45, 0.62, 0]);
+  part(cylX(0.05, 2.8, 10), steelM, xInner, carrier, [CHAMBER_X + 1.3, 0.83, 0]);
+  const piston = new T.Group(); gun.add(piston);
+  part(cylX(0.085, 0.35, 12), steelM, xInner, piston, [5.85, 0.83, 0]);
+  const SPRING_REAR = -3.9;
+  const springGeo = (() => { const pts = [], turns = 18; for (let i = 0; i <= turns * 20; i++) { const a = i / 20 * 2 * PI; pts.push(V(i / (turns * 20), Math.cos(a) * 0.13, Math.sin(a) * 0.13)); } return new T.TubeGeometry(new T.CatmullRomCurve3(pts), turns * 20, 0.025, 5); })();
+  const spring = ghostOnly(springGeo, xSpring, gun); spring.position.set(SPRING_REAR, 0.62, 0);
+  const sear = ghostOnly(box(0.4, 0.2, 0.3), xInner, gun);
+  ghostOnly(box(1.2, 0.05, 0.9), xInner, gun, [1.55, 0.92, 0]);    // feed tray
+  const CARRIER_REAR = -2.1;
+
+  // ---------------------------------------------------------------- 6.8x51 cartridges (steel head + brass body) and belt
+  const roundGeo = { head: lathe([[0, 0], [0.062, 0], [0.062, 0.07], [0, 0.07]], 16), body: lathe([[0, 0.07], [0.06, 0.07], [0.058, 0.43], [0.04, 0.48], [0.038, 0.51], [0, 0.51]], 16), bullet: lathe([[0, 0.5], [0.036, 0.5], [0.036, 0.58], [0.025, 0.66], [0.008, 0.71], [0, 0.712]], 16) };
+  const makeRound = (withBullet = true) => {
+    const r = new T.Group();
+    solid(roundGeo.head, caseHead, r); solid(roundGeo.body, brassM, r);
+    const b = withBullet ? solid(roundGeo.bullet, copperM, r) : null; r.userData.bullet = b; return r;
+  };
+  const linkGeo = box(0.1, 0.05, 0.15);
+  const BELT_X = 1.22, PITCH = 0.17;
+  const beltCurve = new T.CatmullRomCurve3([V(BELT_X, -2.6, 0.2), V(BELT_X, -1.3, 0.35), V(BELT_X, -0.55, 0.72), V(BELT_X, 0.3, 0.82), V(BELT_X, 0.86, 0.62), V(BELT_X, 0.98, 0.28), V(BELT_X, 0.98, 0.0)], false, 'centripetal');
+  const BELT_LEN = beltCurve.getLength();
+  const BELT_SLOTS = 32;
+  const beltRounds = Array.from({ length: BELT_SLOTS }, () => { const r = makeRound(); const l = solid(linkGeo, black, r, [0.27, 0, 0]); gun.add(r); return r; });
+  // round being stripped/chambered (x-ray cycle) and the slow-mo case
+  const workRound = makeRound(); gun.add(workRound); workRound.visible = false;
+  const TRAY_POS = V(BELT_X, 0.98, 0), CHAMBER_POS = V(CHAMBER_X, BORE_Y, 0);
+  const flyBullet = solid(roundGeo.bullet.clone().translate(-0.5, 0, 0), copperM, scene); flyBullet.visible = false;
+  const showRound = makeRound();                              // hybrid-case close-up
+  gun.add(showRound); showRound.visible = false;
+
+  // ammo pouch (soft, under the gun)
+  const pouch = new T.Group(); scene.add(pouch);
+  part(extrudeZ([[0.45, -0.75], [2.25, -0.75], [2.3, -3.3], [0.4, -3.3]], 0.9, 0.15), fabric, xSoft, pouch, [0, 0, 0.18]);
+  part(box(0.25, 2.2, 0.06), tanDark, xSoft, pouch, [1.35, -2.05, 0.7]);
+  const POUCH_ON = { p: V(0, 0, 0), r: new T.Euler(0, 0, 0) }, POUCH_OFF = { p: V(1.0, -2.9, 3.6), r: new T.Euler(PI / 2, 0, 0.4) };
+
+  // ---------------------------------------------------------------- the range dummy (plastic mannequin target on a spring stand)
+  const DUMMY = V(300, 0, 0);
+  const dummyBase = new T.Group(); dummyBase.position.copy(DUMMY); scene.add(dummyBase);
+  solid(new T.CylinderGeometry(2.6, 2.9, 0.4, 28), standMat, dummyBase, [0, 0.2, 0]);
+  const dummy = new T.Group(); dummy.position.y = 0.4; dummyBase.add(dummy);
+  { const pts = []; for (let i = 0; i <= 14 * 16; i++) { const a = i / 16 * 2 * PI; pts.push(V(Math.cos(a) * 0.9, i / (14 * 16) * 3.2, Math.sin(a) * 0.9)); }
+    solid(new T.TubeGeometry(new T.CatmullRomCurve3(pts), 220, 0.12, 6), standMat, dummy); }
+  solid(new T.CylinderGeometry(0.35, 0.35, 5.5, 12), standMat, dummy, [0, 5.8, 0]);
+  const torso = solid(new T.LatheGeometry([[0, 8.0], [1.7, 8.2], [2.1, 9.6], [2.0, 12.0], [2.4, 14.2], [2.2, 15.2], [0.8, 15.7], [0, 15.75]].map(([r, y]) => new T.Vector2(r, y)), 28), dummyMat, dummy);
+  torso.scale.set(0.75, 1, 1.15);
+  solid(new T.CylinderGeometry(0.55, 0.65, 0.9, 14), dummyMat, dummy, [0, 16.1, 0]);
+  const head = solid(new T.SphereGeometry(1.25, 22, 16), dummyMat, dummy, [0, 17.6, 0]); head.scale.set(0.9, 1.1, 0.9);
+  [1, -1].forEach(s => solid(new T.SphereGeometry(0.95, 16, 10), dummyMat, dummy, [0, 14.4, s * 2.35]));
+  const ringTex = canvasTex(256, 256, (x, w) => { x.clearRect(0, 0, w, w); x.strokeStyle = '#1a1a1a'; x.lineWidth = 9; [110, 80, 50].forEach(r => { x.beginPath(); x.arc(w / 2, w / 2, r, 0, 2 * PI); x.stroke(); }); x.fillStyle = '#1a1a1a'; x.beginPath(); x.arc(w / 2, w / 2, 20, 0, 2 * PI); x.fill(); });
+  const rings = new T.Mesh(new T.PlaneGeometry(3.4, 3.4), new T.MeshStandardMaterial({ map: ringTex, transparent: true, roughness: 0.7, depthWrite: false })); rings.position.set(-1.62, 12.0, 0); rings.rotation.y = -PI / 2; dummy.add(rings);
+  // bullet holes
+  const HOLE_MAX = 60;
+  const holes = new T.InstancedMesh(new T.CircleGeometry(0.14, 10), new T.MeshBasicMaterial({ color: 0x120f0c }), HOLE_MAX); holes.count = 0; dummy.add(holes);
+
+  // ---------------------------------------------------------------- effects
+  const radial = stops => canvasTex(128, 128, (x, w) => { const gr = x.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2); stops.forEach(([o, c]) => gr.addColorStop(o, c)); x.fillStyle = gr; x.fillRect(0, 0, w, w); });
+  const flareTex = radial([[0, 'rgba(255,255,255,1)'], [0.25, 'rgba(255,220,150,0.9)'], [0.55, 'rgba(255,140,40,0.35)'], [1, 'rgba(255,90,0,0)']]);
+  const smokeTex = radial([[0, 'rgba(255,255,255,0.9)'], [0.5, 'rgba(255,255,255,0.35)'], [1, 'rgba(255,255,255,0)']]);
+  const sprite = (color, parent = scene) => { const s = new T.Sprite(new T.SpriteMaterial({ map: flareTex, color, blending: T.AdditiveBlending, depthWrite: false, transparent: true, toneMapped: false, fog: false })); s.visible = false; parent.add(s); return s; };
+  const addMat = color => new T.MeshBasicMaterial({ map: flareTex, color, transparent: true, blending: T.AdditiveBlending, depthWrite: false, side: T.DoubleSide, toneMapped: false, fog: false });
+  const muzzleFlash = sprite(new T.Color(3, 2.2, 1.3), gun); muzzleFlash.position.set(MUZZLE_X + 0.25, BORE_Y, 0);
+  const primerFlash = sprite(new T.Color(2.6, 2.1, 1.5), gun); primerFlash.position.set(CHAMBER_X + 0.02, BORE_Y, 0);
+  const portGlow = sprite(new T.Color(2.6, 1.3, 0.4), gun); portGlow.position.set(6.05, 0.62, 0);
+  const gasGeo = cylX(0.055, 1, 10).translate(0.5, 0, 0);
+  const gasMat = new T.MeshBasicMaterial({ color: new T.Color(2.2, 1.0, 0.3), transparent: true, blending: T.AdditiveBlending, depthWrite: false, toneMapped: false, fog: false });
+  const gas = new T.Mesh(gasGeo, gasMat); gas.visible = false; gun.add(gas);
+  const streakGeo = new T.PlaneGeometry(1, 0.05).translate(-0.5, 0, 0);
+  const streakMat = addMat(new T.Color(2.4, 1.6, 0.9));
+  const streaks = Array.from({ length: 6 }, () => { const m = new T.Mesh(streakGeo, streakMat); m.visible = false; scene.add(m); const m2 = new T.Mesh(streakGeo, streakMat); m2.rotation.x = PI / 2; m.add(m2); return m; });
+  const chaseStreak = new T.Mesh(streakGeo, addMat(new T.Color(1.6, 1.4, 1.2))); chaseStreak.position.x = -0.05; chaseStreak.scale.set(3, 1, 1); flyBullet.add(chaseStreak);
+  const chips = Array.from({ length: 40 }, () => { const m = new T.Mesh(box(0.25, 0.08, 0.18), dummyMat); m.visible = false; scene.add(m); return m; });
+  const smokePool = Array.from({ length: 140 }, () => { const s = new T.Sprite(new T.SpriteMaterial({ map: smokeTex, color: 0x8f9499, transparent: true, depthWrite: false, opacity: 0, fog: false })); s.visible = false; scene.add(s); return s; });
+  // ejected cases and links (one per round fired at full speed)
+  const N_SHOTS = 47;
+  const caseGeoAll = (() => { const g1 = roundGeo.head.clone(), g2 = roundGeo.body.clone(); return [g1, g2]; })();
+  const casesHead = new T.InstancedMesh(caseGeoAll[0], caseHead, N_SHOTS), casesBody = new T.InstancedMesh(caseGeoAll[1], brassM, N_SHOTS), links = new T.InstancedMesh(linkGeo, black, N_SHOTS);
+  [casesHead, casesBody, links].forEach(m => { m.count = N_SHOTS; scene.add(m); });
+  const slowCase = makeRound(false); scene.add(slowCase); slowCase.visible = false;
+
+  // ---------------------------------------------------------------- timeline
+  const LOOP = 56;
+  const XRAY = [[22.0, 22.9, 38.2, 38.9]];
+  // x-ray slow-motion cycle
+  const X_TRIG = [23.8, 24.3], X_FWD = [24.5, 29.0], X_FIRE = 29.2, X_BUL = [29.25, 30.9], X_PISTON = [30.1, 30.6], X_BACK = [30.5, 33.0], X_EJECT = 32.3, X_ADV = [32.7, 33.5];
+  // full-speed fire: two bursts at ~800 rounds/min, then one round followed in slow motion
+  const PERIOD = 0.075;
+  const BURST = [];
+  for (let k = 0; k < 26; k++) BURST.push(42.0 + k * PERIOD);
+  for (let k = 0; k < 20; k++) BURST.push(44.6 + k * PERIOD);
+  const CHASE_FIRE = 46.8, CHASE_HIT = 50.2;
+  const SHOTS = BURST.concat([CHASE_FIRE]);
+  const FLIGHT = 0.06;                                       // visible flight time of each tracer-like streak
+  const HITS = SHOTS.map((tf, k) => {
+    const chase = k === SHOTS.length - 1, miss = !chase && rand(k, 7) < 0.15;
+    return { t: chase ? CHASE_HIT : tf + FLIGHT, miss, chase,
+      p: miss ? V(DUMMY.x + 40, 3 + rand(k, 8) * 10, (rand(k, 9) - 0.5) * 16) : V(DUMMY.x - 1.6, chase ? 12.3 : 9.8 + rand(k, 10) * 4.6, chase ? 0.1 : (rand(k, 11) - 0.5) * 1.9) };
+  });
+  const SEG = [[0, 5, 'Ready'], [5, 10.5, 'Bipod'], [10.5, 22, 'Reload'], [22, 38.5, 'Slow-mo cycle'], [38.5, 42, 'Aim'], [42, 46.4, 'Full auto'], [46.4, 50.6, 'Slow-mo round'], [50.6, LOOP, 'Cease fire']];
+  const CAPTIONS = [
+    [0, 5, '', 'The XM250: the Army’s new belt-fed light machine gun, firing 6.8×51 mm rounds.'],
+    [5, 10.5, '01 · Bipod', 'The legs swing down from under the handguard, splay out and extend. The front of the gun lifts onto them.'],
+    [10.5, 12.9, '02 · Reload', 'Open the feed cover.'],
+    [12.9, 15.0, '02 · Reload', 'Clip the 100-round ammo pouch under the gun.'],
+    [15.0, 18.6, '02 · Reload', 'Lay the first round of the belt on the feed tray, then close the cover.'],
+    [18.6, 22.0, '02 · Reload', 'Pull the charging handle back. The bolt stays locked open, because this gun fires from an open bolt.'],
+    [22.0, 24.4, 'X-ray', 'One shot in slow motion, with the receiver made see-through.', 'x'],
+    [24.4, 27.0, '03 · Trigger', 'The trigger drops the sear. The compressed recoil spring drives the bolt carrier forward.', 'x'],
+    [27.0, 29.2, '04 · Feed', 'The bolt strips the next round off the belt and pushes it into the chamber.', 'x'],
+    [29.2, 30.9, '05 · Fire', 'The bolt locks and the round fires. The bullet runs down the 17.5-inch barrel at about 900 m/s.', 'x'],
+    [30.9, 32.4, '06 · Gas', 'Gas behind the bullet bleeds into a port and kicks a short-stroke piston, which shoves the carrier back.', 'x'],
+    [32.4, 36.4, '07 · Eject + advance', 'The empty case is thrown clear and the belt moves over one round. Hold the trigger and this repeats about 13 times a second.', 'x'],
+    [36.4, 38.5, 'Hybrid case', 'The 6.8×51 cartridge pairs a steel case head with a brass body so it can run at higher pressure.', 'x'],
+    [38.5, 42.0, '08 · Live fire', 'Target: a plastic range dummy in front of the berm, 30 m out.'],
+    [42.0, 46.4, '09 · Full auto', 'Short bursts at about 800 rounds a minute. Empty cases and belt links pour out the right side.'],
+    [46.4, 50.6, '10 · Slow motion', 'Following one bullet downrange.'],
+    [50.6, LOOP, '', 'Bipod down, belt in, bolt back, fire.'],
+  ];
+  const FOCUS = [[22.0, 38.5, ['inner', 'body']]];
+
+  const bulletT = () => [flyBullet.position.x, flyBullet.position.y, flyBullet.position.z];
+  const muzzleT = () => { gun.updateMatrixWorld(true); const p = gun.localToWorld(V(MUZZLE_X, BORE_Y, 0)); return [p.x, p.y, p.z]; };
+  const CAM = [
+    { t: 0, tg: [3, 3.0, 0], az: -0.6, el: 0.25, d: 22 },
+    { t: 4.8, tg: [3, 3.3, 0], az: 0.15, el: 0.14, d: 20 },
+    { t: 5.4, tg: [6, 2.4, 0], az: 0.55, el: 0.12, d: 9.5 },
+    { t: 10.2, tg: [6, 2.6, 0], az: 0.9, el: 0.1, d: 9.5 },
+    { t: 10.9, tg: [1.4, 4.8, 0], az: 0.35, el: 0.6, d: 8.5 },
+    { t: 13.2, tg: [1.4, 2.4, 0.6], az: 0.65, el: 0.25, d: 10 },
+    { t: 15.4, tg: [1.4, 4.6, 0.3], az: 0.35, el: 0.55, d: 8 },
+    { t: 18.6, tg: [1.8, 4.4, 0.5], az: 0.15, el: 0.18, d: 7 },
+    { t: 21.8, tg: [1.6, 4.4, 0.4], az: 0.05, el: 0.2, d: 8 },
+    { t: 23.6, tg: [3.0, 4.6, 0], az: 0.0, el: 0.08, d: 11 },
+    { t: 28.8, tg: [3.3, 4.6, 0], az: 0.08, el: 0.08, d: 8.5 },
+    { t: 30.6, tg: [7.0, 4.5, 0], az: 0.12, el: 0.06, d: 11.5 },
+    { t: 32.2, tg: [1.6, 4.4, -0.4], az: -0.45, el: 0.25, d: 7.5 },
+    { t: 35.8, tg: [1.4, 4.4, -0.4], az: -0.7, el: 0.25, d: 7.5 },
+    { t: 36.5, tg: [1.55, 5.1, 0], az: 0.45, el: 0.45, d: 3.0 },
+    { t: 38.3, tg: [1.55, 5.1, 0], az: 0.65, el: 0.4, d: 3.2 },
+    { t: 38.9, tg: [10, 4.6, 0], az: -1.3, el: 0.12, d: 16 },
+    { t: 41.6, tg: [6, 4.2, -1], az: -1.95, el: 0.16, d: 13 },
+    { t: 43.9, tg: [5, 4.0, -1.5], az: -2.15, el: 0.18, d: 12 },
+    { t: 44.3, tg: [DUMMY.x, 11, 0], az: -0.6, el: 0.1, d: 26, nf: 1 },
+    { t: 46.3, tg: [DUMMY.x, 11, 0], az: -0.8, el: 0.12, d: 24, nf: 1 },
+    { t: 46.7, tg: muzzleT, az: 0.5, el: 0.1, d: 4, nf: 1 },
+    { t: 47.1, tg: bulletT, az: 0.45, el: 0.08, d: 1.4, nf: 1 },
+    { t: 49.9, tg: bulletT, az: -0.3, el: 0.08, d: 1.6, nf: 1 },
+    { t: 50.15, tg: [DUMMY.x - 1.6, 12.4, 0], az: -0.95, el: 0.1, d: 9, nf: 1 },
+    { t: 52.6, tg: [DUMMY.x, 11, 0], az: -0.7, el: 0.12, d: 22, nf: 1 },
+    { t: 54.6, tg: [3, 3.3, 0], az: -0.5, el: 0.2, d: 22 },
+    { t: LOOP, tg: [3, 3.0, 0], az: -0.6, el: 0.25, d: 22 },
+  ];
+  const Wp = (obj, x, y, z) => ({ obj, p: V(x, y, z) });
+  const CALLOUTS = [
+    [5.8, 10.2, Wp(bipod, 0, -0.2, 0), 'Bipod hinge', -30, -34],
+    [7.0, 10.2, Wp(legs[0].lower, 0, -2.4, 0), 'Telescoping legs', 30, 20],
+    [11.2, 12.8, Wp(cover, -1.4, 0.3, 0), 'Feed cover', 30, -30],
+    [13.4, 14.9, Wp(pouch, 1.3, -2.0, 0.65), '100-round pouch', 30, 24],
+    [15.6, 18.4, Wp(gun, 1.4, 0.95, 0), 'Feed tray', 30, -30],
+    [16.4, 18.4, Wp(gun, 1.22, 0.3, 0.8), 'Belt', -30, 24],
+    [19.0, 21.8, Wp(chHandle, 0, 0, 0.3), 'Charging handle', 30, 26],
+    [24.6, 36.2, Wp(carrier, CHAMBER_X - 1.4, 0.82, 0), 'Bolt carrier', -24, -38],
+    [24.6, 29.0, Wp(spring, 1.5, 0.15, 0), 'Recoil spring', -30, 30],
+    [24.6, 27.0, Wp(sear, 0, -0.1, 0), 'Sear', 24, 34],
+    [27.2, 29.0, Wp(gun, CHAMBER_X + 0.2, BORE_Y, 0), 'Chamber', 26, 34],
+    [29.4, 32.3, Wp(gun, 8.5, BORE_Y, 0), '17.5-in barrel', 0, 36],
+    [30.9, 32.3, Wp(piston, 5.85, 0.83, 0), 'Gas port + piston', 20, -40],
+    [30.9, 32.3, Wp(carrier, CHAMBER_X + 1.0, 0.83, 0), 'Op rod', -30, -30],
+    [32.6, 36.2, Wp(dustCover, 0, 0.25, 0), 'Ejection port', 30, 30],
+    [36.7, 38.3, Wp(gun, BELT_X + 0.03, 1.04, 0), 'Steel case head', -26, -30],
+    [36.7, 38.3, Wp(gun, BELT_X + 0.28, 1.04, 0), 'Brass body', 10, -42],
+    [36.7, 38.3, Wp(gun, BELT_X + 0.62, 1.0, 0), '6.8 mm bullet', 30, 26],
+  ];
+
+  // ---------------------------------------------------------------- UI
+  const $ = id => document.getElementById(id);
+  const ui = { play: $('play'), playIcon: $('playIcon'), scrub: $('scrub'), time: $('time'), fill: $('fill'), xray: $('xray'), speed: $('speed'), cam: $('cam'), cap: $('caption'), capStep: $('capStep'), capText: $('capText'), modeTag: $('modeTag'), gStage: $('gStage'), gBelt: $('gBelt'), gRate: $('gRate'), gVel: $('gVel'), track: $('track') };
+  CAPTIONS.forEach(c => {
+    if (!c[2]) return;
+    const m = document.createElement('div'); m.className = 'seg' + (c[4] ? ' x' : '');
+    m.style.left = (c[0] / LOOP * 100) + '%'; m.style.width = ((c[1] - c[0]) / LOOP * 100) + '%';
+    ui.track.appendChild(m);
+  });
+  let videoMode = false;
+  let t = 0, playing = !reducedMotion, speed = 1, xMode = 'auto', camMode = 'director', xrayAmount = 0;
+  if (reducedMotion) t = 29.6;
+  const setPlayIcon = () => {
+    ui.play.setAttribute('aria-label', playing ? 'Pause' : 'Play');
+    ui.playIcon.innerHTML = playing ? '<rect x="1" y="1" width="3.5" height="10"/><rect x="7.5" y="1" width="3.5" height="10"/>' : '<path d="M2 1 L11 6 L2 11 Z"/>';
+  };
+  setPlayIcon();
+  ui.play.onclick = () => { playing = !playing; setPlayIcon(); };
+  ui.scrub.oninput = () => { t = ui.scrub.value / 1000 * LOOP; };
+  ui.xray.onclick = () => {
+    xMode = xMode === 'auto' ? 'on' : xMode === 'on' ? 'off' : 'auto';
+    ui.xray.textContent = 'X-ray: ' + xMode[0].toUpperCase() + xMode.slice(1);
+    ui.xray.setAttribute('aria-pressed', String(xMode === 'on'));
+  };
+  ui.speed.onclick = () => { speed = speed === 1 ? 0.5 : speed === 0.5 ? 0.25 : 1; ui.speed.textContent = (speed === 1 ? '1' : speed === 0.5 ? '½' : '¼') + '×'; };
+  const setCam = m => { camMode = m; ui.cam.textContent = 'Camera: ' + (m === 'free' ? 'Free' : 'Director'); ui.cam.setAttribute('aria-pressed', String(m === 'free')); };
+  ui.cam.onclick = () => setCam(camMode === 'free' ? 'director' : 'free');
+  document.addEventListener('keydown', e => {
+    if (e.target.tagName === 'INPUT' && e.code !== 'Space') return;
+    if (e.code === 'Space') { e.preventDefault(); ui.play.click(); }
+    if (e.key === 'x' || e.key === 'X') ui.xray.click();
+  });
+  const controls = new T.OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true; controls.dampingFactor = 0.08; controls.minDistance = 0.5; controls.maxDistance = 600;
+  controls.addEventListener('start', () => { if (camMode !== 'free') setCam('free'); });
+
+  const composer = new T.EffectComposer(renderer);
+  composer.addPass(new T.RenderPass(scene, camera));
+  const bloom = new T.UnrealBloomPass(new T.Vector2(1, 1), 0.5, 0.45, 0.82);
+  composer.addPass(bloom);
+  composer.addPass(new T.ShaderPass(T.GammaCorrectionShader));
+
+  function resize() {
+    const w = stage.clientWidth || window.innerWidth, h = stage.clientHeight || window.innerHeight;
+    renderer.setSize(w, h, false); composer.setSize(w, h);
+    camera.aspect = w / h;
+    if (videoMode) camera.setViewOffset(w, h, 0, -h * 0.07, w, h); else camera.clearViewOffset();
+    camera.updateProjectionMatrix();
+    bgMat.uniforms.uRes.value.set(w, h);
+  }
+  window.addEventListener('resize', resize); resize();
+
+  function camAt(time) {
+    let i = 0; while (i < CAM.length - 2 && CAM[i + 1].t <= time) i++;
+    const a = CAM[i], b = CAM[i + 1], k = smooth(span(time, a.t, b.t));
+    const ta = typeof a.tg === 'function' ? a.tg(time) : a.tg, tb = typeof b.tg === 'function' ? b.tg(time) : b.tg;
+    const fit = Math.max(1, (videoMode ? 1.55 : 1.45) / camera.aspect);
+    const sc = key => key.nf ? 1 : key.d > 20 ? fit : Math.sqrt(fit);
+    return { tg: [lerp(ta[0], tb[0], k), lerp(ta[1], tb[1], k), lerp(ta[2], tb[2], k)], az: lerp(a.az, b.az, k), el: lerp(a.el, b.el, k), d: lerp(a.d * sc(a), b.d * sc(b), k) };
+  }
+
+  const calloutRoot = document.getElementById('callouts');
+  const callouts = CALLOUTS.map(([t0, t1, a, text, dx, dy]) => {
+    const el = document.createElement('div'); el.className = 'callout';
+    el.innerHTML = '<span class="line"></span><span class="dot"></span><span class="tag"></span>';
+    el.querySelector('.tag').textContent = text; calloutRoot.appendChild(el);
+    return { t0, t1, a, dx, dy, el, line: el.querySelector('.line'), tag: el.querySelector('.tag') };
+  });
+
+  // ---------------------------------------------------------------- state helpers
+  const PITCH0 = -0.268, AIM = 0.028;
+  const shotsBefore = (t, lag) => { let n = 0; for (const tf of SHOTS) if (tf + lag <= t) n++; return n; };
+  function carrierX(t) {
+    // open bolt: rests at the rear once charged; runs forward only to fire
+    let cx = t < 19.0 ? 0 : -2.1 * smooth(span(t, 19.0, 19.6));
+    if (t >= X_FWD[0]) cx = -2.1 * (1 - smooth(span(t, ...X_FWD)));
+    if (t >= X_BACK[0]) cx = -2.1 * smooth(span(t, ...X_BACK));
+    for (const tf of SHOTS) { const u = (t - tf) / PERIOD; if (u > -0.5 && u < 0.5) cx = -2.1 * Math.pow(Math.abs(u) * 2, 0.8); }
+    return cx;
+  }
+  const triggerDown = t => Math.max(pulse(t, 23.8, 24.3, 32.9, 33.3), pulse(t, 41.85, 41.95, 43.95, 44.05), pulse(t, 44.45, 44.55, 46.05, 46.15), pulse(t, 46.65, 46.75, 46.9, 47.0));
+  const warpChase = tau => tau <= 0 ? tau : tau < 1.4 ? tau * 0.25 : 0.35 + (tau - 1.4);
+  const xrayAuto = t => { let x = 0; for (const [a, b, c, d] of XRAY) x = Math.max(x, pulse(t, a, b, c, d)); return x; };
+
+  // ---------------------------------------------------------------- per-frame update
+  const v3 = V(0, 0, 0), tmp = V(0, 0, 0), _m = new T.Matrix4(), _q = new T.Quaternion(), _s = V(1, 1, 1), _zero = V(0, 0, 0);
+  const gunQ = new T.Quaternion();
+  let lastCap = -1;
+  function update(t, wall) {
+    // bipod deploys, front of the gun lifts onto it; slight aim-up for live fire; recoil shimmy in bursts
+    const fold = smooth(span(t, 5.6, 8.2)), ext = smooth(span(t, 8.0, 9.6));
+    legs.forEach(L => { L.hinge.rotation.set(-L.s * 0.25 * fold, 0, -PI / 2 * (1 - fold)); L.lower.position.y = -0.75 * ext; });
+    let recoil = 0;
+    for (const tf of SHOTS) { const k = t - tf; if (k > 0 && k < 0.25) recoil += Math.exp(-k / 0.05) * 0.006; }
+    rig.rotation.z = lerp(PITCH0, 0, smooth(span(t, 5.9, 9.8))) + AIM * pulse(t, 39.0, 41.0, 52.0, 54.0) + recoil;
+    gun.position.x = 6.0 - recoil * 6;
+    rig.updateMatrixWorld(true);
+
+    // reload: feed cover, pouch, belt, charging handle
+    cover.rotation.z = -1.15 * pulse(t, 10.8, 11.8, 17.4, 18.4);
+    const pk = smooth(span(t, 12.9, 14.7));
+    gun.updateMatrixWorld(true);
+    const onP = new T.Vector3(), onQ = new T.Quaternion(), onS = new T.Vector3();
+    gun.matrixWorld.decompose(onP, onQ, onS);
+    const offP = V(2.0, 3.3, 3.8), offQ = new T.Quaternion().setFromEuler(new T.Euler(0, 0.4, 0));
+    pouch.position.copy(offP).lerp(onP, pk); pouch.position.y += Math.sin(pk * PI) * 1.2;
+    pouch.quaternion.copy(offQ).slerp(onQ, pk);
+    if (t < 12.9 && t >= 0) { pouch.position.copy(offP); pouch.quaternion.copy(offQ); }
+    chHandle.position.x = 1.9 - 2.1 * pulse(t, 19.0, 19.6, 20.2, 20.8);
+
+    // bolt carrier group, piston, spring, sear, trigger, dust cover
+    const cx = carrierX(t);
+    carrier.position.x = cx;
+    spring.scale.set((CHAMBER_X - 2.6 + cx) - SPRING_REAR, 1, 1);
+    piston.position.x = -0.3 * pulse(t, 30.1, 30.25, 30.6, 31.2);
+    const td = triggerDown(t);
+    trigger.rotation.z = -0.32 * td;
+    sear.position.set(-1.4, 0.3 - 0.22 * td, 0);
+    dustCover.rotation.x = -1.7 * smooth(span(t, 24.4, 24.8)) * (t < LOOP - 0.2 ? 1 : 0);
+
+    // belt: rounds slide along the feed path; stripped rounds leave it, the belt advances one pitch per shot
+    const load = (BELT_LEN + 0.3) * (1 - smooth(span(t, 15.2, 17.4)));
+    const stripped = (t >= 26.3 ? 1 : 0) + shotsBefore(t, -0.03);
+    const adv = smooth(span(t, ...X_ADV)) + shotsBefore(t, 0.03);
+    beltRounds.forEach((r, j) => {
+      const i = stripped + j, s = BELT_LEN - (i - adv) * PITCH - load;
+      r.visible = s >= 0 && s <= BELT_LEN + 0.001;
+      if (r.visible) r.position.copy(beltCurve.getPointAt(clamp(s / BELT_LEN))).setX(BELT_X);
+    });
+    // x-ray cycle: the stripped round rides the bolt into the chamber; the case rides back out
+    const xc = t >= 26.3 && t < X_EJECT;
+    workRound.visible = xc;
+    if (xc) {
+      if (t < X_BACK[0]) workRound.position.lerpVectors(TRAY_POS, CHAMBER_POS, smooth(span(t, 26.3, 29.0)));
+      else workRound.position.set(CHAMBER_X + cx, BORE_Y, 0);
+      workRound.userData.bullet.visible = t < X_FIRE;
+    }
+    gunQ.copy(onQ);
+    slowCase.visible = t >= X_EJECT && t < X_EJECT + 3.4;
+    if (slowCase.visible) {
+      const tau = t - X_EJECT, p0 = gun.localToWorld(V(CHAMBER_X + carrierX(X_EJECT), BORE_Y, -0.1));
+      slowCase.position.copy(p0).add(V(-0.35 * tau, 1.1 * tau - 1.4 * tau * tau, -2.2 * tau));
+      slowCase.quaternion.copy(gunQ); slowCase.rotateY(tau * 2.2); slowCase.rotateZ(tau * 1.3);
+      if (slowCase.position.y < 0.06) slowCase.position.y = 0.06;
+    }
+    // show round for the hybrid-case close-up (sits on the feed tray, cover is see-through)
+    showRound.visible = false;
+
+    // bullets: x-ray run down the bore, the slow-motion chase, and fast streaks for the bursts
+    flyBullet.visible = false;
+    let vel = 0, gasK = 0, bulletGX = 0;
+    if (t >= X_BUL[0] && t < X_BUL[1] + 0.4) {
+      const k = (t - X_BUL[0]) / (X_BUL[1] - X_BUL[0]);
+      bulletGX = lerp(CHAMBER_X + 0.5, MUZZLE_X + 0.4, Math.pow(Math.min(k, 1.3), 1.25));
+      flyBullet.visible = true; flyBullet.position.copy(gun.localToWorld(V(bulletGX + 0.21, BORE_Y, 0))); flyBullet.quaternion.copy(gunQ);
+      vel = 900 * Math.min(1, Math.pow(Math.min(k, 1), 0.5)); gasK = 1;
+    }
+    if (t >= X_FIRE && t < 32.0) gasK = Math.max(gasK, clamp(1 - (t - X_BUL[1]) / 1.0));
+    gas.visible = gasK > 0.02 && t >= X_FIRE;
+    if (gas.visible) { const gx = Math.min(bulletGX || MUZZLE_X, MUZZLE_X); gas.position.set(CHAMBER_X + 0.5, BORE_Y, 0); gas.scale.set(Math.max(0.01, gx - CHAMBER_X - 0.5), 1, 1); gasMat.opacity = gasK * 0.85; }
+    portGlow.visible = t > 30.0 && t < 31.3; portGlow.scale.setScalar(0.5); portGlow.material.opacity = 1 - clamp((t - 30.0) / 1.3);
+    primerFlash.visible = t >= X_FIRE && t < X_FIRE + 0.5; primerFlash.scale.setScalar(0.5); primerFlash.material.opacity = 1 - (t - X_FIRE) / 0.5;
+    const muzW = gun.localToWorld(V(MUZZLE_X + 0.3, BORE_Y, 0));
+    const chaseHit = HITS[HITS.length - 1];
+    if (t >= CHASE_FIRE && t < CHASE_HIT) {
+      const k = (t - CHASE_FIRE) / (CHASE_HIT - CHASE_FIRE), dir = chaseHit.p.clone().sub(muzW).normalize();
+      flyBullet.visible = true; flyBullet.position.lerpVectors(muzW, chaseHit.p, k);
+      flyBullet.quaternion.setFromUnitVectors(V(1, 0, 0), dir); flyBullet.rotateX((t - CHASE_FIRE) * 6);
+      vel = 900;
+    }
+    chaseStreak.visible = t >= CHASE_FIRE && t < CHASE_HIT;
+    let si = 0;
+    SHOTS.forEach((tf, k) => {
+      const tau = t - tf;
+      if (k === SHOTS.length - 1 || tau < 0 || tau > FLIGHT || si >= streaks.length) return;
+      const st = streaks[si++], to = HITS[k].p;
+      st.visible = true; st.position.lerpVectors(muzW, to, tau / FLIGHT); st.lookAt(to); st.rotateY(-PI / 2); st.scale.set(30, 1, 1);
+    });
+    for (; si < streaks.length; si++) streaks[si].visible = false;
+    let mf = 0;
+    SHOTS.forEach(tf => { const k = t - tf; if (k >= 0 && k < 0.035) mf = Math.max(mf, 1 - k / 0.035); });
+    if (t >= X_BUL[1] && t < X_BUL[1] + 0.5) mf = Math.max(mf, 1 - (t - X_BUL[1]) / 0.5);
+    muzzleFlash.visible = mf > 0.02; muzzleFlash.scale.setScalar(0.7 + 0.5 * (1 - mf)); muzzleFlash.material.opacity = mf * 0.8;
+
+    // ejected cases and links (full-speed shots)
+    SHOTS.forEach((tf, k) => {
+      const tau = t - tf - 0.02;
+      if (tau < 0) { _m.compose(_zero, _q.identity(), V(0, 0, 0)); casesHead.setMatrixAt(k, _m); casesBody.setMatrixAt(k, _m); links.setMatrixAt(k, _m); return; }
+      const p0 = gun.localToWorld(V(1.6, 0.4, -0.6)), l0 = gun.localToWorld(V(1.4, 0.95, -0.6));
+      const fly = (p, v, i) => {
+        const g = 98, tl = (v.y + Math.sqrt(v.y * v.y + 2 * g * (p.y - 0.06))) / g, tt = Math.min(tau, tl);
+        const pos = V(p.x + v.x * tt, Math.max(0.06, p.y + v.y * tt - 0.5 * g * tt * tt), p.z + v.z * tt);
+        const rot = tau < tl ? new T.Euler(tt * 20 * rand(k, i), tt * 30 * rand(k, i + 1), tt * 25) : new T.Euler(0, rand(k, i + 2) * 6, 0);
+        return [pos, rot];
+      };
+      const [cp, cr] = fly(p0, V(-6 + rand(k, 1) * 4, 14 + rand(k, 2) * 6, -28 - rand(k, 3) * 12), 4);
+      _m.compose(cp, _q.setFromEuler(cr), _s); casesHead.setMatrixAt(k, _m); casesBody.setMatrixAt(k, _m);
+      const [lp, lr] = fly(l0, V(-2 + rand(k, 5) * 3, 4 + rand(k, 6) * 3, -10 - rand(k, 7) * 5), 8);
+      _m.compose(lp, _q.setFromEuler(lr), _s); links.setMatrixAt(k, _m);
+    });
+    [casesHead, casesBody, links].forEach(m => { m.instanceMatrix.needsUpdate = true; });
+
+    // the dummy: holes, chips, wobble on its spring
+    let wob = 0, nh = 0, ci = 0;
+    HITS.forEach((h, k) => {
+      const raw = t - h.t, tau = h.chase ? warpChase(raw) : raw;
+      if (raw < 0) return;
+      if (!h.miss) {
+        if (nh < HOLE_MAX) { _m.compose(V(-1.64, h.p.y - 0.4, h.p.z), _q.setFromEuler(new T.Euler(0, -PI / 2, 0)), _s); holes.setMatrixAt(nh++, _m); }
+        wob += (h.chase ? 0.05 : 0.012) * Math.exp(-tau / 1.4) * Math.sin(tau * 6.5);
+        for (let c = 0; c < (h.chase ? 8 : 2) && ci < chips.length; c++) {
+          const ch = chips[ci], life = 1.2; if (tau > life) continue; ci++;
+          const v = V(-4 - rand(k, c) * 6, 3 + rand(k, c + 3) * 6, (rand(k, c + 6) - 0.5) * 8);
+          ch.visible = true; ch.position.copy(h.p).addScaledVector(v, tau).add(V(0, -4.9 * tau * tau, 0)); ch.rotation.set(tau * 9, tau * 7, tau * 5);
+        }
+      }
+    });
+    for (; ci < chips.length; ci++) chips[ci].visible = false;
+    holes.count = nh; holes.instanceMatrix.needsUpdate = true;
+    dummy.rotation.z = -wob;
+
+    // smoke and dust: suppressor puffs, dust behind the dummy where rounds hit the berm
+    let pi = 0;
+    const puff = (x, y, z, scale, op, rot, col) => {
+      if (pi >= smokePool.length || op <= 0.003) return;
+      const s = smokePool[pi++]; s.visible = true; s.position.set(x, y, z); s.scale.setScalar(scale); s.material.opacity = op; s.material.rotation = rot; s.material.color.setHex(col);
+    };
+    SHOTS.forEach((tf, k) => {
+      if (k % 3) return;
+      const age = (t - tf) / 2.4; if (age <= 0 || age >= 1) return;
+      puff(muzW.x + 0.6 + age * 2, muzW.y + age * 1.2, muzW.z + (rand(k, 1) - 0.5) * age, 0.5 + age * 2.5, 0.22 * Math.pow(1 - age, 1.5) * Math.min(1, age * 12), rand(k, 2) * 6, 0xbfc2c4);
+    });
+    HITS.forEach((h, k) => {
+      const age = ((h.chase ? warpChase(t - h.t) : t - h.t)) / 2.2; if (age <= 0 || age >= 1) return;
+      const bx = h.miss ? h.p.x : DUMMY.x + 38;
+      puff(bx - age * 2, (h.miss ? h.p.y : h.p.y * 0.7) + age * 2, h.p.z * (h.miss ? 1 : 1.5), 1 + age * 4, 0.4 * Math.pow(1 - age, 1.4) * Math.min(1, age * 14), rand(k, 3) * 6, 0x8a7a5e);
+    });
+    for (; pi < smokePool.length; pi++) smokePool[pi].visible = false;
+
+    // x-ray blend
+    const xr = xMode === 'on' ? 1 : xMode === 'off' ? 0 : xrayAuto(t);
+    xrayAmount += (xr - xrayAmount) * (xMode === 'auto' ? 1 : 0.15);
+    const X = xrayAmount;
+    bgMat.uniforms.uX.value = X;
+    xrayMats.forEach(mm => { mm.uniforms.uOpacity.value = X; });
+    shells.forEach(({ solid: s1, ghost }) => { ghost.visible = X > 0.005; s1.visible = X < 0.995; });
+    fadeMats.forEach(mt => { mt.transparent = X > 0.005; mt.opacity = 1 - X; mt.depthWrite = X < 0.5; });
+    envMats.forEach(mt => { mt.transparent = X > 0.005; mt.opacity = 1 - 0.9 * X; mt.depthWrite = X < 0.5; });
+    internals.forEach(mm => { mm.visible = X > 0.005; });
+    scene.fog.color.copy(HORIZON).lerp(XRAY_FOG, X);
+    shadowMat.opacity = 1 - X;
+    brassM.emissive.setRGB(0.3 * X, 0.18 * X, 0.04 * X); copperM.emissive.setRGB(0.4 * X, 0.18 * X, 0.08 * X);
+    ui.modeTag.classList.toggle('on', X > 0.5);
+    bloom.strength = 0.5 - 0.2 * X;
+
+    // camera
+    if (camMode === 'director') {
+      const c = camAt(t), d = c.d;
+      const target = v3.set(...c.tg);
+      const shake = reducedMotion ? 0 : mf * 0.04 * Math.min(1, d / 10);
+      camera.position.set(
+        target.x + d * Math.sin(c.az) * Math.cos(c.el) + (rand(wall, 1) - 0.5) * shake,
+        Math.max(0.4, target.y + d * Math.sin(c.el)) + (rand(wall, 2) - 0.5) * shake,
+        target.z + d * Math.cos(c.az) * Math.cos(c.el));
+      camera.lookAt(target);
+      controls.target.copy(target);
+    } else controls.update();
+    const camDist = camera.position.distanceTo(controls.target);
+    camera.near = Math.max(0.03, camDist * 0.2); camera.far = camDist * 8 + 2000;
+    camera.updateProjectionMatrix();
+    camera.updateMatrixWorld();
+
+    // callouts
+    const W2 = stage.clientWidth || innerWidth, H2 = stage.clientHeight || innerHeight;
+    const capR = ui.cap.getBoundingClientRect(), gR = document.querySelector('.gauges').getBoundingClientRect();
+    const band = videoMode ? [capR.bottom + 8, gR.top - 8] : [gR.bottom + 8, capR.top - 8];
+    callouts.forEach(c => {
+      const vis = pulse(t, c.t0, c.t0 + 0.35, c.t1 - 0.3, c.t1);
+      if (vis <= 0.01) { c.el.style.opacity = 0; return; }
+      c.a.obj.updateMatrixWorld(true);
+      tmp.copy(c.a.p); c.a.obj.localToWorld(tmp);
+      const pr = tmp.clone().project(camera);
+      if (pr.z > 1 || Math.abs(pr.x) > 1.2 || Math.abs(pr.y) > 1.2) { c.el.style.opacity = 0; return; }
+      const x = (pr.x * 0.5 + 0.5) * W2, y = (-pr.y * 0.5 + 0.5) * H2;
+      c.el.style.opacity = vis;
+      c.el.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`;
+      const w = c.tag.offsetWidth, h = c.tag.offsetHeight;
+      let left = x + c.dx - (c.dx < 0 ? w : c.dx === 0 ? w / 2 : 0), top = y + c.dy - h / 2;
+      left = clamp(left, 8, W2 - w - 8); top = clamp(top, band[0], Math.max(band[0], band[1] - h));
+      const ex = clamp(x, left, left + w) - x, ey = top + h / 2 - y;
+      c.line.style.width = Math.hypot(ex, ey) + 'px'; c.line.style.transform = `rotate(${Math.atan2(ey, ex)}rad)`;
+      c.tag.style.transform = `translate(${(left - x).toFixed(1)}px, ${(top - y).toFixed(1)}px)`;
+      c.el.classList.toggle('x', X > 0.5);
+    });
+
+    // HUD
+    const seg = SEG.find(s => t >= s[0] && t < s[1]) || SEG[0];
+    ui.gStage.textContent = seg[2];
+    ui.gBelt.textContent = t < 15.2 ? 'Empty' : (100 - stripped) + ' rds';
+    const firing = SHOTS.some(tf => Math.abs(t - tf) < 0.12) && t < CHASE_FIRE;
+    ui.gRate.textContent = firing ? '≈800 rpm' : t >= 23.8 && t < 33.5 ? 'Slow-mo' : '—';
+    ui.gVel.textContent = vel > 0 ? Math.round(vel) + ' m/s' : '—';
+    let ci2 = CAPTIONS.findIndex(c => t >= c[0] && t < c[1]); if (ci2 < 0) ci2 = 0;
+    if (ci2 !== lastCap) {
+      lastCap = ci2; const c = CAPTIONS[ci2];
+      const apply = () => { ui.capStep.textContent = c[2]; ui.capStep.className = 'step' + (c[4] ? ' x' : ''); ui.capText.textContent = c[3]; ui.cap.classList.remove('swap'); };
+      if (videoMode) apply(); else { ui.cap.classList.add('swap'); setTimeout(apply, 180); }
+    }
+    ui.fill.style.width = (t / LOOP * 100) + '%';
+    if (document.activeElement !== ui.scrub) ui.scrub.value = Math.round(t / LOOP * 1000);
+    ui.time.textContent = t.toFixed(1) + ' / ' + LOOP + ' s';
+  }
+
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.min(0.05, (now - last) / 1000); last = now;
+    if (!videoMode) {
+      if (playing) t = (t + dt * speed) % LOOP;
+      update(t, now / 1000);
+      composer.render();
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+  window.__seek = (time, opts = {}) => { playing = false; setPlayIcon(); t = time; if (opts.x) xMode = opts.x; update(t, videoMode ? time : 0); composer.render(); };
+  window.__video = (dpr = 3) => {
+    videoMode = true; document.body.classList.add('video');
+    renderer.setPixelRatio(dpr); composer.setPixelRatio(dpr); resize();
+  };
+})();
+</script>
