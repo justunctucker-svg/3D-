@@ -1,0 +1,971 @@
+<title>Revolver X-Ray</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  /* Layout: full-bleed WebGL stage; title + gauges in the top corners, caption and transport bar along the bottom edge */
+  :root {
+    --ink: #0a0b0d;
+    --panel: rgba(14, 16, 19, 0.72);
+    --line: rgba(196, 210, 222, 0.16);
+    --fg: #e8ecef;
+    --muted: #8c959e;
+    --xray: #74d4ff;
+    --flash: #ffb24a;
+    --display: "Barlow Condensed", "Arial Narrow", "Helvetica Neue", sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+    color-scheme: dark;
+  }
+  html, body { height: 100%; }
+  body {
+    background: var(--ink);
+    color: var(--fg);
+    font-family: var(--mono);
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+  #stage { position: fixed; inset: 0; }
+  #stage canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+  #stage canvas:active { cursor: grabbing; }
+
+  .hud {
+    position: fixed; inset: 0;
+    pointer-events: none;
+    display: flex; flex-direction: column; justify-content: space-between; gap: 16px;
+    padding-block: max(16px, env(safe-area-inset-top, 0px)) max(14px, env(safe-area-inset-bottom, 0px));
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+  }
+  .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+  .brand h1 {
+    margin: 0;
+    font-family: var(--display); font-weight: 700;
+    font-size: clamp(22px, 3.2vw, 34px); line-height: 0.95;
+    letter-spacing: 0.02em; text-transform: uppercase;
+  }
+  .brand p {
+    margin: 6px 0 0; color: var(--muted);
+    font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase;
+  }
+  .mode {
+    display: inline-block; margin-top: 10px; padding: 3px 8px;
+    border: 1px solid var(--xray); color: var(--xray);
+    font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase;
+    opacity: 0; transition: opacity .3s;
+  }
+  .mode.on { opacity: 1; }
+
+  .gauges {
+    display: grid; grid-template-columns: auto auto; column-gap: 14px; row-gap: 5px;
+    padding: 10px 12px; background: var(--panel); border: 1px solid var(--line);
+    font-size: 11px; font-variant-numeric: tabular-nums;
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  }
+  .gauges dt { color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; font-size: 10px; align-self: center; }
+  .gauges dd { margin: 0; text-align: right; min-width: 9ch; }
+  .pips { display: inline-flex; gap: 4px; vertical-align: middle; }
+  .pips i { width: 8px; height: 8px; border-radius: 50%; border: 1px solid #c9a24f; background: #c9a24f; }
+  .pips i.spent { background: transparent; border-color: #6a5a3a; }
+  .pips i.empty { background: transparent; border-color: #3a3f45; }
+
+  .bottom { display: flex; flex-direction: column; gap: 12px; }
+  .caption { max-width: 46ch; min-height: 92px; display: flex; flex-direction: column; justify-content: flex-end; }
+  .caption .step {
+    font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--flash);
+    min-height: 1.3em;
+  }
+  .caption .step.x { color: var(--xray); }
+  .caption .text {
+    margin: 4px 0 0;
+    font-family: var(--display); font-weight: 600;
+    font-size: clamp(19px, 2.4vw, 27px); line-height: 1.12; text-wrap: balance;
+    text-shadow: 0 1px 12px rgba(0,0,0,.6);
+  }
+  .caption > * { transition: opacity .25s; }
+  .caption.swap > * { opacity: 0; }
+
+  .transport {
+    pointer-events: auto;
+    display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px;
+    padding: 8px 10px; background: var(--panel); border: 1px solid var(--line);
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  }
+  .transport button {
+    font: 500 11px/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--fg); background: transparent; border: 1px solid var(--line);
+    padding: 8px 10px; min-height: 32px; cursor: pointer; white-space: nowrap;
+  }
+  .transport button:hover { border-color: var(--muted); }
+  .transport button:focus-visible, .scrub input:focus-visible { outline: 2px solid var(--xray); outline-offset: 2px; }
+  .transport button[aria-pressed="true"] { border-color: var(--xray); color: var(--xray); }
+  #play { width: 40px; padding: 0; display: grid; place-items: center; }
+  #play svg { width: 12px; height: 12px; fill: currentColor; }
+  .scrub { flex: 1 1 220px; min-width: 0; position: relative; height: 32px; display: flex; align-items: center; }
+  .scrub input { width: 100%; margin: 0; appearance: none; -webkit-appearance: none; background: transparent; height: 32px; position: relative; z-index: 1; cursor: pointer; }
+  .scrub input::-webkit-slider-runnable-track { height: 2px; background: transparent; }
+  .scrub input::-moz-range-track { height: 2px; background: transparent; }
+  .scrub input::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 12px; margin-top: -5px; border-radius: 50%; background: var(--fg); border: 0; }
+  .scrub input::-moz-range-thumb { width: 12px; height: 12px; border-radius: 50%; background: var(--fg); border: 0; }
+  .track { position: absolute; left: 6px; right: 6px; top: 15px; height: 2px; background: var(--line); }
+  .track .fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--muted); }
+  .track .seg { position: absolute; top: -3px; height: 8px; border-left: 1px solid var(--muted); }
+  .track .seg.x { background: rgba(116, 212, 255, 0.18); border-left-color: var(--xray); }
+  .time { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 9ch; text-align: right; }
+  .hint { font-size: 10px; color: var(--muted); letter-spacing: 0.08em; }
+
+  @media (max-width: 640px) {
+    .gauges { font-size: 10px; padding: 8px 10px; column-gap: 10px; }
+    .gauges dd { min-width: 7ch; }
+    .brand p { display: none; }
+    .caption { min-height: 76px; }
+    .hint { display: none; }
+  }
+  @media (max-width: 420px) {
+    .top { flex-direction: column; }
+  }
+</style>
+
+<div id="stage"></div>
+
+<div class="hud">
+  <div class="top">
+    <div class="brand">
+      <h1>Double-Action<br>Revolver</h1>
+      <p>6-shot · 4-inch barrel · .357 Magnum</p>
+      <span class="mode" id="modeTag">X-ray view</span>
+    </div>
+    <dl class="gauges" aria-label="Live readouts">
+      <dt>Hammer</dt><dd id="gHammer">0°</dd>
+      <dt>Cylinder</dt><dd id="gCyl">0°</dd>
+      <dt>Bullet</dt><dd id="gVel">0 m/s</dd>
+      <dt>Pressure</dt><dd id="gPsi">0 psi</dd>
+      <dt>Rounds</dt><dd><span class="pips" id="pips"></span></dd>
+    </dl>
+  </div>
+
+  <div class="bottom">
+    <div class="caption" id="caption" aria-live="polite">
+      <div class="step" id="capStep"></div>
+      <p class="text" id="capText"></p>
+    </div>
+    <div class="transport">
+      <button id="play" aria-label="Pause"><svg viewBox="0 0 12 12" id="playIcon"><rect x="1" y="1" width="3.5" height="10"/><rect x="7.5" y="1" width="3.5" height="10"/></svg></button>
+      <div class="scrub">
+        <div class="track" id="track"><div class="fill" id="fill"></div></div>
+        <input type="range" id="scrub" min="0" max="1000" value="0" aria-label="Timeline">
+      </div>
+      <span class="time" id="time">0.0 s</span>
+      <button id="xray" aria-pressed="false" title="X-ray: auto, on, off">X-ray: Auto</button>
+      <button id="speed" title="Playback speed">1×</button>
+      <button id="cam" aria-pressed="false" title="Drag the scene to orbit freely">Camera: Director</button>
+      <span class="hint">Drag to orbit</span>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/GammaCorrectionShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+<script>
+(() => {
+  const T = THREE;
+  const PI = Math.PI, DEG = 180 / PI;
+  const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+  const lerp = (a, b, k) => a + (b - a) * k;
+  const smooth = k => { k = clamp(k); return k * k * (3 - 2 * k); };
+  const easeOut = k => { k = clamp(k); return 1 - Math.pow(1 - k, 3); };
+  const easeIn = k => { k = clamp(k); return k * k * k; };
+  const span = (t, a, b) => clamp((t - a) / (b - a));
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // ---------------------------------------------------------------- renderer
+  const stage = document.getElementById('stage');
+  const renderer = new T.WebGLRenderer({ antialias: true, powerPreference: 'high-performance', preserveDrawingBuffer: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.toneMapping = T.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.05;
+  stage.appendChild(renderer.domElement);
+
+  const scene = new T.Scene();
+  const camera = new T.PerspectiveCamera(32, 1, 0.1, 400);
+
+  // Studio environment for reflections: dark room with long softboxes.
+  {
+    const env = new T.Scene();
+    const room = new T.Mesh(new T.BoxGeometry(60, 30, 60), new T.MeshBasicMaterial({ color: 0x050607, side: T.BackSide }));
+    env.add(room);
+    const box = (w, h, x, y, z, ry, rx, c) => {
+      const m = new T.Mesh(new T.PlaneGeometry(w, h), new T.MeshBasicMaterial({ color: c, side: T.DoubleSide }));
+      m.position.set(x, y, z); m.rotation.set(rx || 0, ry || 0, 0); env.add(m);
+    };
+    box(40, 6, 0, 14, 0, 0, PI / 2, new T.Color(3.2, 3.2, 3.3));
+    box(4, 22, -24, 2, 8, PI / 2.6, 0, new T.Color(2.4, 2.5, 2.7));
+    box(4, 22, 24, 2, -6, -PI / 2.4, 0, new T.Color(1.6, 1.7, 2.0));
+    box(30, 3, 0, 4, -28, 0, 0, new T.Color(1.4, 1.1, 0.8));
+    box(30, 3, 0, -6, 28, PI, 0, new T.Color(0.6, 0.65, 0.7));
+    const pm = new T.PMREMGenerator(renderer);
+    scene.environment = pm.fromScene(env, 0.02).texture;
+  }
+  const key = new T.DirectionalLight(0xffffff, 1.2); key.position.set(4, 10, 8); scene.add(key);
+  const rim = new T.DirectionalLight(0xbfd8ff, 0.9); rim.position.set(-10, 4, -8); scene.add(rim);
+  scene.add(new T.AmbientLight(0x404650, 0.35));
+
+  // Full-screen backdrop: studio vignette that crossfades to an x-ray light box.
+  const bgMat = new T.ShaderMaterial({
+    uniforms: { uX: { value: 0 }, uRes: { value: new T.Vector2(1, 1) } },
+    vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.9999, 1.0); }',
+    fragmentShader: `
+      varying vec2 vUv; uniform float uX; uniform vec2 uRes;
+      void main(){
+        vec2 c = vUv - vec2(0.5, 0.56); c.x *= uRes.x / uRes.y;
+        float r = length(c);
+        vec3 solid = mix(vec3(0.030, 0.032, 0.036), vec3(0.002, 0.002, 0.003), smoothstep(0.0, 0.95, r));
+        vec3 xr = mix(vec3(0.006, 0.032, 0.055), vec3(0.0, 0.004, 0.009), smoothstep(0.0, 0.95, r));
+        vec2 g = gl_FragCoord.xy / (uRes.y / 18.0);
+        vec2 f = abs(fract(g) - 0.5);
+        float line = 1.0 - smoothstep(0.0, 0.035, min(f.x, f.y));
+        xr += vec3(0.010, 0.040, 0.060) * line * (1.0 - smoothstep(0.2, 1.0, r));
+        gl_FragColor = vec4(mix(solid, xr, uX), 1.0);
+      }`,
+    depthWrite: false, depthTest: false
+  });
+  const bg = new T.Mesh(new T.PlaneGeometry(2, 2), bgMat);
+  bg.frustumCulled = false; bg.renderOrder = -10; scene.add(bg);
+
+  // ---------------------------------------------------------------- helpers
+  // Crease-aware normals so bevelled extrusions read as machined, rounded steel.
+  function autoSmooth(geo, angle) {
+    const g = geo.index ? geo.toNonIndexed() : geo;
+    const p = g.attributes.position, n = p.count, faces = n / 3;
+    const fa = new Float32Array(faces * 3), fu = new Float32Array(faces * 3);
+    const a = new T.Vector3(), b = new T.Vector3(), c = new T.Vector3();
+    for (let f = 0; f < faces; f++) {
+      a.fromBufferAttribute(p, f * 3); b.fromBufferAttribute(p, f * 3 + 1); c.fromBufferAttribute(p, f * 3 + 2);
+      b.sub(a); c.sub(a); b.cross(c);
+      fa[f * 3] = b.x; fa[f * 3 + 1] = b.y; fa[f * 3 + 2] = b.z;
+      b.normalize(); fu[f * 3] = b.x; fu[f * 3 + 1] = b.y; fu[f * 3 + 2] = b.z;
+    }
+    const groups = new Map();
+    for (let i = 0; i < n; i++) {
+      const k = Math.round(p.getX(i) * 1e4) + ',' + Math.round(p.getY(i) * 1e4) + ',' + Math.round(p.getZ(i) * 1e4);
+      let l = groups.get(k); if (!l) groups.set(k, l = []); l.push(i);
+    }
+    const cosT = Math.cos(angle * PI / 180), out = new Float32Array(n * 3);
+    groups.forEach(list => {
+      for (const i of list) {
+        const fi = (i / 3 | 0) * 3; let x = 0, y = 0, z = 0;
+        for (const j of list) {
+          const fj = (j / 3 | 0) * 3;
+          if (fu[fi] * fu[fj] + fu[fi + 1] * fu[fj + 1] + fu[fi + 2] * fu[fj + 2] >= cosT) { x += fa[fj]; y += fa[fj + 1]; z += fa[fj + 2]; }
+        }
+        const l = Math.hypot(x, y, z) || 1; out[i * 3] = x / l; out[i * 3 + 1] = y / l; out[i * 3 + 2] = z / l;
+      }
+    });
+    g.setAttribute('normal', new T.BufferAttribute(out, 3));
+    return g;
+  }
+  function extrude(shape, depth, bevel = 0.08, segs = 3, smoothAngle = 50, curveSegments = 24) {
+    const g = new T.ExtrudeGeometry(shape, { depth, bevelEnabled: bevel > 0, bevelThickness: bevel, bevelSize: bevel, bevelSegments: segs, curveSegments });
+    g.translate(0, 0, -depth / 2);
+    return autoSmooth(g, smoothAngle);
+  }
+  const alongX = g => g.rotateZ(-PI / 2); // cylinder/lathe axis y -> +x
+
+  // ---------------------------------------------------------------- materials
+  const steel = new T.MeshStandardMaterial({ color: 0x17191d, metalness: 0.92, roughness: 0.27, envMapIntensity: 1.25 });
+  const steelSatin = new T.MeshStandardMaterial({ color: 0x1d2024, metalness: 0.85, roughness: 0.42, envMapIntensity: 1.0 });
+  const boreMat = new T.MeshStandardMaterial({ color: 0x050506, metalness: 0.6, roughness: 0.6, side: T.BackSide });
+  const holeMat = new T.MeshBasicMaterial({ color: 0x010101 });
+  const checker = (() => {
+    const s = 128, cv = document.createElement('canvas'); cv.width = cv.height = s;
+    const x = cv.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, s, s);
+    x.strokeStyle = '#000'; x.lineWidth = 22;
+    for (let k = -s; k <= 2 * s; k += s / 2) {
+      x.beginPath(); x.moveTo(k, 0); x.lineTo(k + s, s); x.stroke();
+      x.beginPath(); x.moveTo(k + s, 0); x.lineTo(k, s); x.stroke();
+    }
+    const t = new T.CanvasTexture(cv); t.wrapS = t.wrapT = T.RepeatWrapping; t.repeat.set(2.6, 2.6); return t;
+  })();
+  const rubber = new T.MeshStandardMaterial({ color: 0x0a0a0b, metalness: 0.0, roughness: 0.82, bumpMap: checker, bumpScale: 0.018, envMapIntensity: 0.35 });
+  const brass = new T.MeshStandardMaterial({ color: 0xc99a45, metalness: 1.0, roughness: 0.28, emissive: 0x000000 });
+  const brassSpent = new T.MeshStandardMaterial({ color: 0x9c7436, metalness: 1.0, roughness: 0.42 });
+  const copper = new T.MeshStandardMaterial({ color: 0xc27a4e, metalness: 1.0, roughness: 0.3, emissive: 0x000000 });
+  const nickel = new T.MeshStandardMaterial({ color: 0xd7dbe0, metalness: 1.0, roughness: 0.25 });
+  const powderMat = new T.MeshStandardMaterial({ color: 0x2b2a24, roughness: 0.9, metalness: 0, emissive: 0x000000 });
+
+  const xrayMats = [];
+  function xray(color, fill = 0.04, power = 2.0) {
+    const m = new T.ShaderMaterial({
+      uniforms: { uColor: { value: new T.Color(color) }, uOpacity: { value: 0 }, uFill: { value: fill }, uPow: { value: power } },
+      vertexShader: 'varying vec3 vN; varying vec3 vV; void main(){ vec4 mv = modelViewMatrix * vec4(position, 1.0); vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz); gl_Position = projectionMatrix * mv; }',
+      fragmentShader: 'varying vec3 vN; varying vec3 vV; uniform vec3 uColor; uniform float uOpacity; uniform float uFill; uniform float uPow; void main(){ float f = pow(1.0 - abs(dot(normalize(vN), normalize(vV))), uPow); gl_FragColor = vec4(uColor, (f * 0.6 + uFill) * uOpacity * 0.6); }',
+      transparent: true, depthWrite: false, blending: T.AdditiveBlending, side: T.DoubleSide
+    });
+    xrayMats.push(m); return m;
+  }
+  const xShell = xray(0x5cc8ff, 0.035, 2.2);
+  const xGrip = xray(0x3b8fd0, 0.02, 2.0);
+  const xInner = xray(0xd8f3ff, 0.06, 1.6);
+  const xSpring = xray(0xffd27a, 0.35, 1.2);
+  const xBore = xray(0x9fe4ff, 0.05, 1.0);
+
+  // Solid parts that swap to x-ray; internal parts that only exist in x-ray.
+  const shells = [], internals = [], solidOnly = [];
+  function part(geo, mat, xmat, parent, internal) {
+    const g = new T.Group();
+    const solid = new T.Mesh(geo, mat); const ghost = new T.Mesh(geo, xmat);
+    ghost.renderOrder = 5;
+    g.add(solid); g.add(ghost); parent.add(g);
+    shells.push({ solid, ghost, internal: !!internal });
+    return g;
+  }
+  function ghostOnly(geo, xmat, parent) {
+    const m = new T.Mesh(geo, xmat); m.renderOrder = 6; parent.add(m); internals.push(m); return m;
+  }
+
+  // ---------------------------------------------------------------- scene graph
+  // stage -> gunBase (float + reload tilt) -> recoil pivot -> gun (model space)
+  // Model space: cylinder axis is the x axis (y = 0), barrel axis at y = 1, muzzle toward +x.
+  const gunBase = new T.Group(); scene.add(gunBase);
+  const RECOIL_PIVOT = new T.Vector3(-3.4, -2.4, 0);
+  const recoilPivot = new T.Group(); recoilPivot.position.copy(RECOIL_PIVOT); gunBase.add(recoilPivot);
+  const gun = new T.Group(); gun.position.copy(RECOIL_PIVOT).multiplyScalar(-1); recoilPivot.add(gun);
+
+  const BORE_Y = 1.0, MUZZLE_X = 15.3, GAP_X = 4.29;
+
+  // Frame with the cylinder window.
+  {
+    const s = new T.Shape();
+    s.moveTo(5.2, 2.25); s.lineTo(-0.9, 2.25);
+    s.quadraticCurveTo(-1.9, 2.3, -2.35, 1.5);
+    s.lineTo(-2.9, 0.3);
+    s.quadraticCurveTo(-3.35, -0.7, -3.6, -1.9);
+    s.lineTo(-1.6, -2.45); s.lineTo(4.6, -2.3);
+    s.quadraticCurveTo(5.2, -2.3, 5.2, -1.7); s.lineTo(5.2, 2.25);
+    const w = new T.Path();
+    w.moveTo(-0.2, -1.72); w.lineTo(-0.2, 1.72); w.lineTo(4.32, 1.72); w.lineTo(4.32, -1.72); w.lineTo(-0.2, -1.72);
+    s.holes.push(w);
+    part(extrude(s, 1.0, 0.2, 5, 60), steel, xShell, gun);
+    // rear sight
+    const rs = new T.BoxGeometry(0.7, 0.22, 0.22);
+    const r1 = new T.Mesh(rs, steel); r1.position.set(-0.55, 2.42, 0.2); gun.add(r1);
+    const r2 = new T.Mesh(rs, steel); r2.position.set(-0.55, 2.42, -0.2); gun.add(r2);
+    // pins, screws and the cylinder latch
+    const pin = new T.CylinderGeometry(0.13, 0.13, 1.56, 20); pin.rotateX(PI / 2);
+    [[-1.8, -0.9], [0.3, -2.0], [-0.9, -1.25], [2.6, -2.05]].forEach(([x, y]) => {
+      const m = new T.Mesh(pin, steelSatin); m.position.set(x, y, 0); gun.add(m);
+    });
+    const latch = new T.Shape();
+    latch.moveTo(-1.6, 0.55); latch.lineTo(-0.5, 0.65); latch.quadraticCurveTo(-0.35, 0.85, -0.5, 1.05); latch.lineTo(-1.6, 1.0); latch.quadraticCurveTo(-1.75, 0.8, -1.6, 0.55);
+    const lg = extrude(latch, 0.12, 0.05, 2); const lm = new T.Mesh(lg, steelSatin); lm.position.z = 0.78; gun.add(lm);
+  }
+
+  // Barrel: flat-sided slab with full underlug, vent rib and ramp front sight.
+  {
+    const s = new T.Shape();
+    s.moveTo(5.0, 1.55); s.lineTo(15.2, 1.55); s.lineTo(15.2, -0.45);
+    s.quadraticCurveTo(15.2, -0.78, 14.85, -0.78); s.lineTo(5.0, -0.78); s.lineTo(5.0, 1.55);
+    part(extrude(s, 0.72, 0.2, 5, 60), steel, xShell, gun);
+    // side flat line
+    const ln = new T.BoxGeometry(9.6, 0.04, 0.02);
+    [0.57, -0.57].forEach(z => { const m = new T.Mesh(ln, holeMat); m.position.set(10.3, 0.15, z); gun.add(m); solidOnly.push(m); });
+    // rib top + posts (open vents between)
+    const rib = new T.BoxGeometry(10.0, 0.16, 0.44);
+    part(rib, steel, xShell, gun).position.set(10.15, 1.92, 0);
+    const post = new T.BoxGeometry(0.42, 0.32, 0.46);
+    for (let x = 5.6; x < 15; x += 1.15) part(post, steel, xShell, gun).position.set(x, 1.7, 0);
+    // front sight ramp
+    const fs = new T.Shape();
+    fs.moveTo(13.9, 1.98); fs.quadraticCurveTo(14.6, 2.0, 14.9, 2.5); fs.lineTo(15.1, 2.5); fs.lineTo(15.1, 1.98); fs.lineTo(13.9, 1.98);
+    part(extrude(fs, 0.18, 0.04, 2), steel, xShell, gun);
+    // bore
+    const boreGeo = alongX(new T.CylinderGeometry(0.2, 0.2, 10.4, 24, 1, true)); boreGeo.translate(10.1, 0, 0);
+    const bore = new T.Mesh(boreGeo, boreMat); bore.position.y = BORE_Y; gun.add(bore);
+    const ring = new T.Mesh(new T.CircleGeometry(0.2, 24), holeMat); ring.rotation.y = PI / 2; ring.position.set(MUZZLE_X + 0.005, BORE_Y, 0); gun.add(ring);
+    ghostOnly(boreGeo, xBore, gun).position.y = BORE_Y;
+    // rifling: six right-hand grooves, only visible in x-ray
+    for (let k = 0; k < 6; k++) {
+      const pts = [];
+      for (let i = 0; i <= 120; i++) {
+        const x = 5.0 + i * (10.3 / 120), a = k * PI / 3 + x * 0.55;
+        pts.push(new T.Vector3(x, Math.cos(a) * 0.205, Math.sin(a) * 0.205));
+      }
+      ghostOnly(new T.TubeGeometry(new T.CatmullRomCurve3(pts), 160, 0.018, 4), xInner, gun).position.y = BORE_Y;
+    }
+  }
+
+  // Trigger guard
+  {
+    const s = new T.Shape();
+    s.moveTo(2.7, -2.05);
+    s.bezierCurveTo(3.05, -4.2, 0.9, -4.95, -0.5, -4.55);
+    s.bezierCurveTo(-1.45, -4.25, -1.85, -3.3, -1.55, -2.2);
+    s.lineTo(2.7, -2.05);
+    const h = new T.Path();
+    h.moveTo(2.25, -2.32);
+    h.bezierCurveTo(2.5, -3.95, 0.85, -4.55, -0.45, -4.2);
+    h.bezierCurveTo(-1.2, -3.95, -1.45, -3.2, -1.2, -2.4);
+    h.lineTo(2.25, -2.32);
+    s.holes.push(h);
+    part(extrude(s, 0.5, 0.08, 3), steel, xShell, gun);
+  }
+
+  // Rubber grip with finger grooves and palm swell.
+  {
+    const s = new T.Shape();
+    s.moveTo(-1.55, -2.3);
+    s.quadraticCurveTo(-1.45, -3.1, -2.05, -3.55);
+    s.quadraticCurveTo(-1.8, -4.35, -2.45, -4.85);
+    s.quadraticCurveTo(-2.25, -5.75, -2.95, -6.25);
+    s.quadraticCurveTo(-2.85, -7.35, -3.45, -8.25);
+    s.quadraticCurveTo(-5.2, -8.85, -6.85, -8.35);
+    s.quadraticCurveTo(-7.25, -7.8, -6.65, -6.0);
+    s.bezierCurveTo(-5.7, -3.7, -5.05, -2.2, -4.3, -1.25);
+    s.quadraticCurveTo(-3.75, -0.55, -3.05, -0.35);
+    s.lineTo(-2.7, -1.5); s.lineTo(-1.55, -2.3);
+    const g = extrude(s, 1.55, 0.42, 6, 70, 32);
+    const p = g.attributes.position, uv = new Float32Array(p.count * 2);
+    for (let i = 0; i < p.count; i++) { uv[i * 2] = p.getX(i); uv[i * 2 + 1] = p.getY(i); }
+    g.setAttribute('uv', new T.BufferAttribute(uv, 2));
+    part(g, rubber, xGrip, gun);
+  }
+
+  // Hammer (pivots at the hammer pin) with its firing-pin nose.
+  const HAMMER_PIVOT = new T.Vector2(-1.8, -0.9);
+  const hammer = new T.Group(); hammer.position.set(HAMMER_PIVOT.x, HAMMER_PIVOT.y, 0); gun.add(hammer);
+  {
+    const s = new T.Shape();
+    s.moveTo(0.35, -0.45); s.lineTo(0.55, 1.5); s.lineTo(0.6, 2.2);
+    s.quadraticCurveTo(0.35, 2.75, -0.1, 2.95);
+    s.quadraticCurveTo(-0.8, 3.45, -1.55, 3.9);
+    s.quadraticCurveTo(-1.8, 3.75, -1.6, 3.55);
+    s.quadraticCurveTo(-0.95, 3.0, -0.55, 2.3);
+    s.lineTo(-0.6, 0.5); s.quadraticCurveTo(-0.55, -0.45, 0.35, -0.45);
+    part(extrude(s, 0.46, 0.07, 3), steel, xInner, hammer, true);
+    // serrations on the spur
+    const ser = new T.BoxGeometry(0.05, 0.05, 0.62);
+    for (let i = 0; i < 6; i++) {
+      const k = 0.15 + i * 0.13, m = new T.Mesh(ser, steelSatin);
+      m.position.set(lerp(-0.15, -1.45, k * 1.05), lerp(3.02, 3.86, k * 1.05) + 0.03, 0); hammer.add(m);
+    }
+    const nose = alongX(new T.CylinderGeometry(0.06, 0.12, 1.25, 16)); nose.translate(0.6 + 0.62, 1.9, 0);
+    part(nose, steelSatin, xInner, hammer, true);
+  }
+
+  // Trigger (pivots at the trigger pin).
+  const TRIGGER_PIVOT = new T.Vector2(0.3, -2.0);
+  const trigger = new T.Group(); trigger.position.set(TRIGGER_PIVOT.x, TRIGGER_PIVOT.y, 0); gun.add(trigger);
+  {
+    const s = new T.Shape();
+    s.moveTo(-0.3, 0.2); s.lineTo(0.3, 0.2);
+    s.quadraticCurveTo(0.45, -0.7, 0.2, -1.4);
+    s.quadraticCurveTo(0.0, -1.85, -0.35, -2.05);
+    s.quadraticCurveTo(-0.55, -2.05, -0.45, -1.85);
+    s.quadraticCurveTo(-0.2, -1.3, -0.3, -0.6);
+    s.lineTo(-0.3, 0.2);
+    part(extrude(s, 0.36, 0.06, 3), steel, xInner, trigger, true);
+  }
+
+  // Internal lockwork, shown in x-ray only.
+  const hand = ghostOnly(new T.BoxGeometry(0.16, 2.1, 0.16), xInner, gun);           // pawl that turns the cylinder
+  const bolt = ghostOnly(new T.BoxGeometry(0.7, 0.3, 0.3), xInner, gun);             // cylinder stop
+  const strutGeo = new T.CylinderGeometry(0.06, 0.06, 1, 8);
+  const strut = ghostOnly(strutGeo, xInner, gun);
+  const springGeo = (() => {
+    const pts = [], turns = 11;
+    for (let i = 0; i <= turns * 24; i++) { const a = i / 24 * 2 * PI; pts.push(new T.Vector3(Math.cos(a) * 0.26, i / (turns * 24), Math.sin(a) * 0.26)); }
+    return new T.TubeGeometry(new T.CatmullRomCurve3(pts), turns * 24, 0.045, 6);
+  })();
+  const spring = ghostOnly(springGeo, xSpring, gun);
+  const SPRING_ANCHOR = new T.Vector3(-5.3, -6.6, 0);
+  const STRUT_LOCAL = new T.Vector2(-0.62, 0.24);
+
+  // Crane + cylinder. crane swings about a hinge parallel to the bore; cylPivot spins the cylinder.
+  const HINGE = new T.Vector3(0, -1.35, 0.75);
+  const crane = new T.Group(); crane.position.copy(HINGE); gun.add(crane);
+  const cyl = new T.Group(); cyl.position.set(0, -HINGE.y, -HINGE.z); crane.add(cyl);
+  const R = 1.6, RC = 1.0, CH = 0.42, CYL_LEN = 4.2;
+  const chamberAngle = k => PI / 2 + k * PI / 3;
+  {
+    const s = new T.Shape(), N = 360;
+    for (let i = 0; i <= N; i++) {
+      const a = i / N * 2 * PI;
+      let d = 0;
+      for (let k = 0; k < 6; k++) {
+        let da = Math.abs(((a - (chamberAngle(k) + PI / 6)) % (2 * PI) + 3 * PI) % (2 * PI) - PI);
+        const w = 0.2; if (da < w) d = Math.max(d, Math.sqrt(1 - (da / w) ** 2));
+      }
+      const r = R - 0.2 * d;
+      i === 0 ? s.moveTo(Math.cos(a) * r, Math.sin(a) * r) : s.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+    }
+    for (let k = 0; k < 6; k++) {
+      const h = new T.Path(), a = chamberAngle(k);
+      h.absarc(RC * Math.cos(a), RC * Math.sin(a), CH, 0, 2 * PI, true); s.holes.push(h);
+    }
+    const c = new T.Path(); c.absarc(0, 0, 0.22, 0, 2 * PI, true); s.holes.push(c);
+    const g = new T.ExtrudeGeometry(s, { depth: CYL_LEN, bevelEnabled: true, bevelThickness: 0.07, bevelSize: 0.05, bevelSegments: 3, curveSegments: 28 });
+    g.rotateY(PI / 2); // extrusion (z) -> +x, shape x -> -z
+    part(autoSmooth(g, 40), steel, xShell, cyl);
+    // ejector rod with knurled head
+    const rod = alongX(new T.CylinderGeometry(0.17, 0.17, 3.6, 16)); rod.translate(CYL_LEN + 1.8, 0, 0);
+    part(rod, steelSatin, xInner, cyl, true);
+    const head = alongX(new T.CylinderGeometry(0.24, 0.24, 0.45, 20)); head.translate(CYL_LEN + 3.6, 0, 0);
+    part(head, steelSatin, xInner, cyl, true);
+    // crane arm (visible when swung out)
+    const arm = new T.BoxGeometry(0.22, 1.5, 0.5); arm.translate(CYL_LEN + 0.12, -0.6, 0.3);
+    part(arm, steel, xShell, cyl);
+  }
+
+  // Ejector star (moves with ejector stroke) and cartridges.
+  const star = new T.Group(); cyl.add(star);
+  {
+    const s = new T.Shape();
+    for (let i = 0; i <= 12; i++) {
+      const a = chamberAngle(0) + i / 12 * 2 * PI + PI / 6, r = i % 2 ? 0.62 : 0.9;
+      i ? s.lineTo(Math.cos(a) * r, Math.sin(a) * r) : s.moveTo(Math.cos(a) * r, Math.sin(a) * r);
+    }
+    const g = new T.ExtrudeGeometry(s, { depth: 0.06, bevelEnabled: false }); g.rotateY(PI / 2); g.translate(-0.04, 0, 0);
+    part(g, steelSatin, xInner, star, true);
+  }
+
+  const bulletGeo = (() => {
+    const pr = [[0, 0], [0.385, 0], [0.39, 0.03], [0.39, 0.72], [0.37, 0.98], [0.3, 1.22], [0.2, 1.4], [0.09, 1.5], [0, 1.53]];
+    return alongX(new T.LatheGeometry(pr.map(p => new T.Vector2(p[0], p[1])), 32));
+  })();
+  const caseGeo = (() => {
+    const pr = [[0.15, -0.07], [0.5, -0.07], [0.5, 0], [0.41, 0.02], [0.405, 0.12], [0.405, 3.3], [0.37, 3.3], [0.37, 0.2], [0.15, 0.2]];
+    return alongX(new T.LatheGeometry(pr.map(p => new T.Vector2(p[0], p[1])), 32));
+  })();
+  const primerGeo = alongX(new T.CylinderGeometry(0.15, 0.15, 0.08, 20)); primerGeo.translate(-0.04, 0, 0);
+  const powderGeo = alongX(new T.CylinderGeometry(0.33, 0.33, 2.3, 16)); powderGeo.translate(0.3 + 1.15, 0, 0);
+  const BULLET_SEAT = 2.65;
+
+  const rounds = [];
+  for (let k = 0; k < 6; k++) {
+    const g = new T.Group(); const a = chamberAngle(k);
+    const home = new T.Vector3(0, RC * Math.sin(a), -RC * Math.cos(a));
+    g.position.copy(home); cyl.add(g);
+    const caseM = new T.Mesh(caseGeo, brass); g.add(caseM);
+    const primer = new T.Mesh(primerGeo, nickel); g.add(primer);
+    const powder = new T.Mesh(powderGeo, powderMat); g.add(powder);
+    const bullet = new T.Mesh(bulletGeo, copper); bullet.position.x = BULLET_SEAT; g.add(bullet);
+    const flyer = new T.Mesh(bulletGeo, copper); flyer.visible = false; gunBase.add(flyer);
+    rounds.push({ g, home, caseM, primer, powder, bullet, flyer, spin: new T.Euler() });
+  }
+
+  // ---------------------------------------------------------------- effects
+  const radial = (stops) => {
+    const s = 128, cv = document.createElement('canvas'); cv.width = cv.height = s;
+    const x = cv.getContext('2d'), gr = x.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
+    stops.forEach(([o, c]) => gr.addColorStop(o, c)); x.fillStyle = gr; x.fillRect(0, 0, s, s);
+    return new T.CanvasTexture(cv);
+  };
+  const flareTex = radial([[0, 'rgba(255,255,255,1)'], [0.25, 'rgba(255,220,150,0.9)'], [0.55, 'rgba(255,140,40,0.35)'], [1, 'rgba(255,90,0,0)']]);
+  const smokeTex = radial([[0, 'rgba(255,255,255,0.9)'], [0.5, 'rgba(255,255,255,0.35)'], [1, 'rgba(255,255,255,0)']]);
+  const addMat = (tex, color) => new T.MeshBasicMaterial({ map: tex, color, transparent: true, blending: T.AdditiveBlending, depthWrite: false, side: T.DoubleSide, toneMapped: false });
+
+  const muzzle = new T.Group(); muzzle.position.set(MUZZLE_X + 0.05, BORE_Y, 0); gun.add(muzzle);
+  const flashCore = new T.Sprite(new T.SpriteMaterial({ map: flareTex, color: new T.Color(3, 2.4, 1.6), blending: T.AdditiveBlending, depthWrite: false, transparent: true, toneMapped: false }));
+  muzzle.add(flashCore);
+  const petalGeo = new T.PlaneGeometry(1, 1); petalGeo.translate(0.5, 0, 0);
+  const petals = [];
+  const petalMat = addMat(flareTex, new T.Color(2.6, 1.6, 0.7));
+  for (let i = 0; i < 4; i++) { // forward plume, crossed planes
+    const m = new T.Mesh(petalGeo, petalMat); m.rotation.x = i * PI / 4; muzzle.add(m); petals.push({ m, kind: 'fwd' });
+  }
+  for (let i = 0; i < 4; i++) { // side jets
+    const pivot = new T.Group(); pivot.rotation.x = i * PI / 2 + PI / 4; muzzle.add(pivot);
+    const m = new T.Mesh(petalGeo, petalMat); m.rotation.z = PI / 2 * 0.8; pivot.add(m); petals.push({ m, kind: 'side' });
+  }
+  const muzzleLight = new T.PointLight(0xffa040, 0, 30, 2); muzzle.add(muzzleLight);
+
+  const gapFlash = new T.Group(); gapFlash.position.set(GAP_X, BORE_Y, 0); gun.add(gapFlash);
+  const gapJets = [];
+  for (let i = 0; i < 6; i++) {
+    const pivot = new T.Group(); pivot.rotation.x = i * PI / 3; gapFlash.add(pivot);
+    const m = new T.Mesh(petalGeo, petalMat); m.rotation.z = PI / 2; pivot.add(m); gapJets.push(m);
+  }
+  const gapLight = new T.PointLight(0xff9a40, 0, 12, 2); gapFlash.add(gapLight);
+
+  const primerFlash = new T.Sprite(new T.SpriteMaterial({ map: flareTex, color: new T.Color(2.5, 2.0, 1.4), blending: T.AdditiveBlending, depthWrite: false, transparent: true, toneMapped: false }));
+  primerFlash.position.set(0.05, BORE_Y, 0); gun.add(primerFlash);
+
+  const gasGeo = alongX(new T.CylinderGeometry(0.3, 0.3, 1, 16, 1, true)); gasGeo.translate(0.5, 0, 0);
+  const gas = new T.Mesh(gasGeo, new T.MeshBasicMaterial({ color: new T.Color(2.2, 1.0, 0.3), transparent: true, blending: T.AdditiveBlending, depthWrite: false, toneMapped: false }));
+  gas.position.y = BORE_Y; gun.add(gas);
+
+  const smokeMat = () => new T.SpriteMaterial({ map: smokeTex, color: 0x9aa0a6, transparent: true, depthWrite: false, opacity: 0 });
+  const smokePool = Array.from({ length: 48 }, () => { const s = new T.Sprite(smokeMat()); s.visible = false; gunBase.add(s); return s; });
+
+  // ---------------------------------------------------------------- timeline
+  // Shot timing (seconds of timeline). travel = time from ignition until the bullet clears the muzzle.
+  const shot = (start, pull, hold, fall, travel, reset = 0.4) => {
+    const fire = start + pull + hold + fall, exit = fire + travel, slow = Math.min(travel / 0.05, 9);
+    return { start, pull, hold, fall, fire, travel, exit, slow, resetStart: exit + 0.25 * slow, resetDur: reset };
+  };
+  const SHOTS = [
+    shot(3.6, 1.4, 0.2, 0.08, 0.05, 0.5),
+    shot(8.2, 2.2, 0.5, 0.45, 2.6, 0.6),
+    shot(16.0, 0.9, 0.12, 0.06, 0.05, 0.35),
+    shot(18.8, 0.45, 0.05, 0.05, 0.04, 0.2),
+    shot(19.8, 0.45, 0.05, 0.05, 0.04, 0.2),
+    shot(20.8, 0.45, 0.05, 0.05, 0.04, 0.2),
+  ];
+  SHOTS[1].resetStart = 15.0;
+  const RL = { tiltUp: [22.2, 22.8], open: [22.6, 23.3], eject: [23.5, 23.8], fall: 23.8, ejRet: [24.0, 24.3], load: [24.5, 25.4], close: [25.6, 26.2], tiltDown: [26.0, 26.6] };
+  const LOOP = 29;
+  const XRAY_WINDOWS = [[6.8, 7.8, 17.9, 18.6]];
+  const chamberShot = k => (k + 5) % 6; // shot i fires chamber (i + 1) % 6
+
+  const CAPTIONS = [
+    [0, 3.6, '', 'How a double-action revolver fires: one trigger pull does three jobs.'],
+    [3.6, 5.0, '01 · Trigger pull', 'Pulling the trigger cocks the hammer and turns the cylinder at the same time.'],
+    [5.0, 5.28, '02 · Release', 'At the end of the pull, the hammer is let go.'],
+    [5.28, 6.7, '03 · Fire', 'The hammer hits the primer and the round fires.'],
+    [6.7, 8.2, 'X-ray', 'Same cycle again, slowed down, with the steel made see-through.', 'x'],
+    [8.2, 9.7, '01 · Indexing', 'The hand rides up with the trigger, pushes the ratchet and rotates the cylinder 60° to the next chamber.', 'x'],
+    [9.7, 10.95, '02 · Lock-up', 'The cylinder stop pops into its notch and holds the new chamber in line with the barrel.', 'x'],
+    [10.95, 11.35, '03 · Hammer fall', 'The mainspring throws the hammer forward. The firing pin strikes the primer.', 'x'],
+    [11.35, 12.4, '04 · Ignition', 'The primer lights the powder. Gas pressure spikes to around 35,000 psi.', 'x'],
+    [12.4, 13.95, '05 · Rifling', 'Spiral grooves in the bore bite into the bullet and spin it so it flies point-first.', 'x'],
+    [13.95, 15.7, '06 · Muzzle exit', 'The bullet leaves at about 400 m/s. Hot gas behind it makes the flash, and a little leaks at the cylinder gap.', 'x'],
+    [15.7, 17.9, 'Real time', 'At full speed the whole cycle is over in a blink.', 'x'],
+    [17.9, 22.1, 'Rapid fire', 'Each pull brings a fresh chamber under the hammer. Empty cases stay in the cylinder.'],
+    [22.1, 26.6, 'Reload', 'Swing the cylinder out, push the ejector rod to dump the empties, load six fresh rounds.'],
+    [26.6, 29, '', 'Six rounds, ready for the next cycle.'],
+  ];
+
+  // Director camera keys: target in model space, orbit angles, distance (scaled to fit narrow screens).
+  const followBullet = (t) => {
+    const x = bulletX(SHOTS[1], t); return [clamp(x + 1.2, 2.4, 17.5), BORE_Y, 0];
+  };
+  const CAM = [
+    { t: 0, tg: [3.2, -3.6, 0], az: -0.9, el: 0.28, d: 37 },
+    { t: 3.4, tg: [3.6, -4.1, 0], az: -0.08, el: 0.06, d: 34 },
+    { t: 6.4, tg: [3.6, -3.9, 0], az: 0.08, el: 0.08, d: 33 },
+    { t: 7.9, tg: [0.2, -0.6, 0], az: 0.38, el: 0.16, d: 16 },
+    { t: 10.4, tg: [0.0, -0.6, 0], az: 0.22, el: 0.1, d: 15 },
+    { t: 11.3, tg: [1.6, 0.2, 0], az: 0.18, el: 0.1, d: 12.5 },
+    { t: 12.1, tg: followBullet, az: 0.45, el: 0.12, d: 11 },
+    { t: 13.9, tg: followBullet, az: 0.85, el: 0.1, d: 11.5 },
+    { t: 15.0, tg: [16.0, -0.2, 0], az: 1.15, el: 0.1, d: 17 },
+    { t: 15.9, tg: [3.6, -4.1, 0], az: 0.0, el: 0.03, d: 34 },
+    { t: 17.6, tg: [3.6, -4.1, 0], az: 0.05, el: 0.03, d: 34 },
+    { t: 18.6, tg: [4, -3.4, 0], az: 0.75, el: -0.1, d: 33 },
+    { t: 21.7, tg: [4, -3.4, 0], az: 0.95, el: -0.04, d: 32 },
+    { t: 22.7, tg: [1.2, -1.2, 1.4], az: 0.7, el: 0.36, d: 22 },
+    { t: 25.2, tg: [0.8, -1.4, 1.8], az: 0.45, el: 0.3, d: 20 },
+    { t: 26.6, tg: [3.2, -3.6, 0], az: -0.35, el: 0.22, d: 35 },
+    { t: LOOP, tg: [3.2, -3.6, 0], az: -0.9, el: 0.28, d: 37 },
+  ];
+
+  // ---------------------------------------------------------------- state functions
+  function bulletX(s, t) {
+    const tau = t - s.fire, L = MUZZLE_X - BULLET_SEAT;
+    if (tau < 0) return BULLET_SEAT;
+    if (tau < s.travel) return BULLET_SEAT + L * Math.pow(tau / s.travel, 1.6);
+    return MUZZLE_X + (1.6 * L / s.travel) * (tau - s.travel);
+  }
+  function mechanism(t) {
+    let trig = 0, ham = 0, rot = 0, hand = 0, boltDrop = 0;
+    for (let i = 0; i < SHOTS.length; i++) {
+      const s = SHOTS[i];
+      if (t < s.start) break;
+      const p = span(t, s.start, s.start + s.pull);
+      const q = smooth((p - 0.08) / 0.8);
+      rot = -(i + q) * PI / 3;
+      hand = p;
+      boltDrop = clamp(Math.sin(clamp((p - 0.05) / 0.85) * PI) * 1.4);
+      const fallStart = s.fire - s.fall;
+      if (t < fallStart) { trig = -0.38 * smooth(p); ham = 0.62 * smooth(p); }
+      else if (t < s.fire) { trig = -0.38; ham = 0.62 * (1 - easeIn(span(t, fallStart, s.fire))); }
+      else {
+        const r = smooth(span(t, s.resetStart, s.resetStart + s.resetDur));
+        trig = -0.38 * (1 - r); ham = 0.025 * r; hand = 1 - r;
+        boltDrop = 0;
+      }
+    }
+    return { trig, ham, rot, hand, boltDrop };
+  }
+  function xrayAuto(t) {
+    let x = 0;
+    for (const [a, b, c, d] of XRAY_WINDOWS) x = Math.max(x, smooth(span(t, a, b)) * (1 - smooth(span(t, c, d))));
+    return x;
+  }
+
+  // ---------------------------------------------------------------- UI
+  const $ = id => document.getElementById(id);
+  const ui = { play: $('play'), playIcon: $('playIcon'), scrub: $('scrub'), time: $('time'), fill: $('fill'), xray: $('xray'), speed: $('speed'), cam: $('cam'), cap: $('caption'), capStep: $('capStep'), capText: $('capText'), modeTag: $('modeTag'), gHammer: $('gHammer'), gCyl: $('gCyl'), gVel: $('gVel'), gPsi: $('gPsi'), pips: $('pips'), track: $('track') };
+  for (let i = 0; i < 6; i++) ui.pips.appendChild(document.createElement('i'));
+  CAPTIONS.forEach(c => {
+    if (!c[2] || c[2] === 'Real time') return;
+    const m = document.createElement('div'); m.className = 'seg' + (c[4] ? ' x' : '');
+    m.style.left = (c[0] / LOOP * 100) + '%'; m.style.width = ((c[1] - c[0]) / LOOP * 100) + '%';
+    ui.track.appendChild(m);
+  });
+
+  let t = 0, playing = !reducedMotion, speed = 1, xMode = 'auto', camMode = 'director';
+  if (reducedMotion) t = 12.6;
+  const setPlayIcon = () => {
+    ui.play.setAttribute('aria-label', playing ? 'Pause' : 'Play');
+    ui.playIcon.innerHTML = playing ? '<rect x="1" y="1" width="3.5" height="10"/><rect x="7.5" y="1" width="3.5" height="10"/>' : '<path d="M2 1 L11 6 L2 11 Z"/>';
+  };
+  setPlayIcon();
+  ui.play.onclick = () => { playing = !playing; setPlayIcon(); };
+  ui.scrub.oninput = () => { t = ui.scrub.value / 1000 * LOOP; };
+  ui.xray.onclick = () => {
+    xMode = xMode === 'auto' ? 'on' : xMode === 'on' ? 'off' : 'auto';
+    ui.xray.textContent = 'X-ray: ' + xMode[0].toUpperCase() + xMode.slice(1);
+    ui.xray.setAttribute('aria-pressed', String(xMode === 'on'));
+  };
+  ui.speed.onclick = () => { speed = speed === 1 ? 0.5 : speed === 0.5 ? 0.25 : 1; ui.speed.textContent = (speed === 1 ? '1' : speed === 0.5 ? '½' : '¼') + '×'; };
+  const setCam = m => { camMode = m; ui.cam.textContent = 'Camera: ' + (m === 'free' ? 'Free' : 'Director'); ui.cam.setAttribute('aria-pressed', String(m === 'free')); controls.enabled = true; };
+  ui.cam.onclick = () => setCam(camMode === 'free' ? 'director' : 'free');
+  document.addEventListener('keydown', e => {
+    if (e.target.tagName === 'INPUT' && e.code !== 'Space') return;
+    if (e.code === 'Space') { e.preventDefault(); ui.play.click(); }
+    if (e.key === 'x' || e.key === 'X') ui.xray.click();
+  });
+
+  const controls = new T.OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true; controls.dampingFactor = 0.08; controls.minDistance = 4; controls.maxDistance = 90;
+  controls.addEventListener('start', () => { if (camMode !== 'free') setCam('free'); });
+
+  // ---------------------------------------------------------------- composer
+  const composer = new T.EffectComposer(renderer);
+  composer.addPass(new T.RenderPass(scene, camera));
+  const bloom = new T.UnrealBloomPass(new T.Vector2(1, 1), 0.55, 0.45, 0.78);
+  composer.addPass(bloom);
+  composer.addPass(new T.ShaderPass(T.GammaCorrectionShader));
+
+  function resize() {
+    const w = stage.clientWidth || window.innerWidth, h = stage.clientHeight || window.innerHeight;
+    renderer.setSize(w, h, false); composer.setSize(w, h);
+    camera.aspect = w / h; camera.updateProjectionMatrix();
+    bgMat.uniforms.uRes.value.set(w, h);
+  }
+  window.addEventListener('resize', resize); resize();
+
+  // ---------------------------------------------------------------- per-frame update
+  const v3 = new T.Vector3(), q4 = new T.Quaternion(), gWorld = new T.Vector3();
+  const rand = (i, j) => { const x = Math.sin(i * 127.1 + j * 311.7) * 43758.5453; return x - Math.floor(x); };
+  let lastCap = -1;
+
+  function camAt(time) {
+    let i = 0; while (i < CAM.length - 2 && CAM[i + 1].t <= time) i++;
+    const a = CAM[i], b = CAM[i + 1], k = smooth(span(time, a.t, b.t));
+    const ta = typeof a.tg === 'function' ? a.tg(time) : a.tg, tb = typeof b.tg === 'function' ? b.tg(time) : b.tg;
+    return { tg: [lerp(ta[0], tb[0], k), lerp(ta[1], tb[1], k), lerp(ta[2], tb[2], k)], az: lerp(a.az, b.az, k), el: lerp(a.el, b.el, k), d: lerp(a.d, b.d, k) };
+  }
+
+  function update(t, wall) {
+    const m = mechanism(t);
+    trigger.rotation.z = m.trig;
+    hammer.rotation.z = m.ham;
+    cyl.rotation.x = m.rot;
+
+    // lockwork
+    const tp = new T.Vector2(-0.45, 0.12).rotateAround(new T.Vector2(), m.trig).add(TRIGGER_PIVOT);
+    hand.position.set(tp.x, tp.y + 1.05 + m.hand * 0.12, 0.12);
+    bolt.position.set(1.6, -1.72 - m.boltDrop * 0.22, 0);
+    const sp = STRUT_LOCAL.clone().rotateAround(new T.Vector2(), m.ham).add(HAMMER_PIVOT);
+    const top = new T.Vector3(sp.x, sp.y, 0);
+    const springTop = top.clone().lerp(SPRING_ANCHOR, 0.32);
+    const dir = new T.Vector3().subVectors(springTop, SPRING_ANCHOR);
+    spring.position.copy(SPRING_ANCHOR); spring.scale.set(1, dir.length(), 1);
+    spring.quaternion.setFromUnitVectors(new T.Vector3(0, 1, 0), dir.clone().normalize());
+    const sdir = new T.Vector3().subVectors(top, springTop);
+    strut.position.copy(springTop).addScaledVector(sdir, 0.5); strut.scale.set(1, sdir.length(), 1);
+    strut.quaternion.setFromUnitVectors(new T.Vector3(0, 1, 0), sdir.normalize());
+
+    // reload: tilt, crane swing, ejector stroke
+    const tilt = smooth(span(t, ...RL.tiltUp)) * (1 - smooth(span(t, ...RL.tiltDown)));
+    const open = smooth(span(t, ...RL.open)) * (1 - smooth(span(t, ...RL.close)));
+    const eject = easeOut(span(t, ...RL.eject)) * (1 - smooth(span(t, ...RL.ejRet)));
+    crane.rotation.x = open * 1.75;
+    star.position.x = -eject * 1.25;
+    const idle = reducedMotion ? 0 : 1;
+    gunBase.rotation.set(Math.sin(wall * 0.5) * 0.015 * idle, Math.sin(wall * 0.37) * 0.03 * idle, tilt * 0.42);
+    gunBase.position.y = Math.sin(wall * 0.8) * 0.06 * idle;
+
+    // gravity in cylinder-local space (for falling empties)
+    gunBase.updateMatrixWorld(true);
+    cyl.getWorldQuaternion(q4); gWorld.set(0, -1, 0).applyQuaternion(q4.invert());
+
+    // rounds
+    let flashI = 0, gapI = 0, primerI = 0, recoil = 0, vel = 0, psi = 0, gasLen = 0, gasA = 0;
+    const pipState = [];
+    rounds.forEach((r, k) => {
+      const s = SHOTS[chamberShot(k)];
+      const fired = t >= s.fire && t < RL.load[0];
+      const loadK = easeOut(span(t, RL.load[0] + k * 0.03, RL.load[1]));
+      r.bullet.visible = !fired;
+      r.powder.visible = !fired;
+      r.primer.scale.x = fired ? 0.45 : 1;
+      r.caseM.material = fired ? brassSpent : brass;
+      r.g.visible = true; r.g.rotation.set(0, 0, 0);
+      r.g.position.copy(r.home);
+      if (t >= RL.eject[0] && t < RL.load[0]) {
+        const e = easeOut(span(t, ...RL.eject));
+        r.g.position.x -= e * 1.25;
+        if (t >= RL.fall) {
+          const tau = t - RL.fall - k * 0.025, g = 34;
+          if (tau > 0) {
+            r.g.position.x += -2.5 * tau;
+            r.g.position.addScaledVector(gWorld, 0.5 * g * tau * tau);
+            r.g.rotation.set(tau * (3 + rand(k, 1) * 6), 0, tau * (2 + rand(k, 2) * 5));
+          }
+          if (tau > 1.6) r.g.visible = false;
+        }
+      } else if (t >= RL.load[0]) {
+        r.g.position.x -= (1 - loadK) * 7.5;
+      }
+      pipState.push(t >= RL.eject[0] && t < RL.load[1] ? (t >= RL.load[0] ? 'live' : 'empty') : fired ? 'spent' : 'live');
+
+      // flying bullet + effects for this round's shot
+      const tau = t - s.fire;
+      const x = bulletX(s, t);
+      r.flyer.visible = tau >= 0 && x < 90;
+      if (r.flyer.visible) { r.flyer.position.set(x, BORE_Y, 0); r.flyer.rotation.x = -(x - BULLET_SEAT) * 0.55; }
+      if (tau >= 0) {
+        const rs = s.slow;
+        if (tau < s.travel) {
+          vel = Math.max(vel, 400 * Math.pow(tau / s.travel, 0.6));
+          const kp = tau / (0.22 * s.travel); psi = Math.max(psi, 35000 * kp * Math.exp(1 - kp));
+          gasLen = x - BULLET_SEAT; gasA = Math.max(gasA, 0.9);
+        } else {
+          const after = tau - s.travel;
+          if (after < 0.6 * rs) vel = Math.max(vel, 400);
+          gasLen = Math.max(gasLen, MUZZLE_X - BULLET_SEAT);
+          gasA = Math.max(gasA, 0.9 * Math.exp(-after / (0.06 * rs)));
+          const kp = (tau) / (0.22 * s.travel); psi = Math.max(psi, 35000 * kp * Math.exp(1 - kp) * Math.exp(-after / (0.03 * rs)));
+          const fd = 0.11 * rs;
+          flashI = Math.max(flashI, after < fd * 4 ? Math.exp(-after / fd) * Math.min(1, after / (0.004 * rs) + 0.2) : 0);
+          const kr = after / (0.09 * rs); recoil += kr < 8 ? kr * Math.exp(1 - kr) : 0;
+        }
+        if (tau < s.travel + 0.25 * rs) gapI = Math.max(gapI, clamp(psi / 35000) * 0.9);
+        if (tau < 0.2 * rs) primerI = Math.max(primerI, Math.exp(-tau / (0.05 * rs)));
+      }
+    });
+    ui.pips.childNodes.forEach((el, i) => { const st = pipState[(i + 1) % 6]; el.className = st === 'live' ? '' : st; });
+
+    // recoil: muzzle rise about the grip
+    recoilPivot.rotation.z = recoil * 0.2;
+    recoilPivot.position.x = RECOIL_PIVOT.x - recoil * 0.25;
+
+    // muzzle flash
+    muzzle.visible = flashI > 0.01;
+    if (muzzle.visible) {
+      const grow = 0.5 + (1 - flashI) * 1.4;
+      flashCore.scale.setScalar(2.6 * grow * (0.6 + flashI));
+      flashCore.material.opacity = flashI;
+      petals.forEach(({ m, kind }, i) => {
+        const L = kind === 'fwd' ? 4.2 * grow : 1.7 * grow;
+        m.scale.set(L, kind === 'fwd' ? 1.3 * grow : 0.55 * grow, 1);
+      });
+      petalMat.opacity = flashI;
+      muzzleLight.intensity = 5 * flashI;
+    } else muzzleLight.intensity = 0;
+    gapFlash.visible = gapI > 0.01 && open < 0.01;
+    gapJets.forEach(m => m.scale.set(0.9 * (0.5 + gapI), 0.35, 1));
+    gapLight.intensity = 2 * gapI;
+    primerFlash.visible = primerI > 0.01;
+    primerFlash.scale.setScalar(1.3 * primerI + 0.2); primerFlash.material.opacity = primerI;
+    gas.visible = gasA > 0.01 && gasLen > 0.01;
+    gas.position.x = BULLET_SEAT; gas.scale.set(gasLen, 1, 1); gas.material.opacity = gasA;
+
+    // smoke puffs (deterministic from the timeline so scrubbing works)
+    let si = 0;
+    SHOTS.forEach((s, j) => {
+      const rs = Math.min(s.slow, 5);
+      for (let p = 0; p < 8 && si < smokePool.length; p++) {
+        const life = (2.2 + rand(j, p) * 1.2) * rs;
+        const age = (t - s.exit - p * 0.015 * rs) / life;
+        if (age <= 0 || age >= 1) continue;
+        const sp = smokePool[si++];
+        const spread = (rand(j, p + 9) - 0.5) * 0.9, spreadZ = (rand(j, p + 19) - 0.5) * 0.9;
+        const travel = (1 - Math.exp(-age * 5)) * (2 + p * 0.55);
+        sp.visible = true;
+        sp.position.set(MUZZLE_X + 0.4 + travel, BORE_Y + spread * travel * 0.4 + age * 2.2, spreadZ * travel * 0.4);
+        sp.scale.setScalar(0.7 + age * 4.5 + p * 0.1);
+        sp.material.opacity = 0.32 * Math.pow(1 - age, 1.6) * Math.min(1, age * 12);
+        sp.material.rotation = rand(j, p + 30) * 6 + age * 0.6;
+      }
+    });
+    for (; si < smokePool.length; si++) smokePool[si].visible = false;
+
+    // x-ray blend
+    const xr = xMode === 'on' ? 1 : xMode === 'off' ? 0 : xrayAuto(t);
+    xrayAmount += (xr - xrayAmount) * (xMode === 'auto' ? 1 : 0.15);
+    const X = xrayAmount;
+    bgMat.uniforms.uX.value = X;
+    xrayMats.forEach(mm => { mm.uniforms.uOpacity.value = X; });
+    shells.forEach(({ solid, ghost, internal }) => {
+      ghost.visible = X > 0.005;
+      solid.visible = X < 0.995;
+    });
+    [steel, steelSatin, rubber].forEach(mt => {
+      mt.transparent = X > 0.005; mt.opacity = 1 - X; mt.depthWrite = X < 0.5;
+    });
+    internals.forEach(mm => { mm.visible = X > 0.005; });
+    solidOnly.forEach(mm => { mm.visible = X < 0.5; });
+    brass.emissive.setRGB(0.35 * X, 0.2 * X, 0.04 * X);
+    brassSpent.emissive.setRGB(0.12 * X, 0.07 * X, 0.02 * X);
+    copper.emissive.setRGB(0.55 * X, 0.24 * X, 0.1 * X);
+    powderMat.emissive.setRGB(0.25 * X, 0.12 * X, 0.03 * X);
+    ui.modeTag.classList.toggle('on', X > 0.5);
+    renderer.toneMappingExposure = 1.05;
+    bloom.strength = 0.55 - 0.25 * X;
+
+    // camera
+    if (camMode === 'director') {
+      const c = camAt(t), fit = Math.max(1, 1.45 / camera.aspect);
+      const d = c.d * (c.d > 20 ? fit : Math.sqrt(fit));
+      const target = v3.set(...c.tg);
+      gunBase.localToWorld(target);
+      const shake = reducedMotion ? 0 : flashI * 0.12 * Math.min(1, c.d / 20);
+      camera.position.set(
+        target.x + d * Math.sin(c.az) * Math.cos(c.el) + (rand(wall, 1) - 0.5) * shake,
+        target.y + d * Math.sin(c.el) + (rand(wall, 2) - 0.5) * shake,
+        target.z + d * Math.cos(c.az) * Math.cos(c.el));
+      camera.lookAt(target);
+      controls.target.copy(target);
+    } else controls.update();
+
+    // HUD
+    ui.gHammer.textContent = (m.ham * DEG).toFixed(0) + '°';
+    ui.gCyl.textContent = ((((-m.rot * DEG) % 360) + 360) % 360).toFixed(0) + '°';
+    ui.gVel.textContent = vel.toFixed(0) + ' m/s';
+    ui.gPsi.textContent = (psi < 500 ? 0 : Math.round(psi / 100) * 100).toLocaleString('en-US') + ' psi';
+    let ci = CAPTIONS.findIndex(c => t >= c[0] && t < c[1]); if (ci < 0) ci = 0;
+    if (ci !== lastCap) {
+      lastCap = ci; const c = CAPTIONS[ci];
+      ui.cap.classList.add('swap');
+      setTimeout(() => { ui.capStep.textContent = c[2]; ui.capStep.className = 'step' + (c[4] ? ' x' : ''); ui.capText.textContent = c[3]; ui.cap.classList.remove('swap'); }, 180);
+    }
+    ui.fill.style.width = (t / LOOP * 100) + '%';
+    if (document.activeElement !== ui.scrub) ui.scrub.value = Math.round(t / LOOP * 1000);
+    ui.time.textContent = t.toFixed(1) + ' / ' + LOOP + ' s';
+  }
+  let xrayAmount = 0;
+
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.min(0.05, (now - last) / 1000); last = now;
+    if (playing) t = (t + dt * speed) % LOOP;
+    update(t, now / 1000);
+    composer.render();
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+  // test hook: render a given timeline time synchronously
+  window.__seek = (time, opts = {}) => { playing = false; setPlayIcon(); t = time; if (opts.x) { xMode = opts.x; } update(t, 0); composer.render(); };
+})();
+</script>
