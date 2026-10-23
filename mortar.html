@@ -710,7 +710,7 @@
     const camDist = camera.position.distanceTo(controls.target);
     camera.near = Math.max(0.2, camDist * 0.3); camera.far = camDist * 6 + 800;
     camera.updateProjectionMatrix();
-    const fovK = 2 * Math.tan(camera.fov * PI / 360) * camera.aspect * 0.028;  // label width ≈ 22% of the screen
+    const fovK = 2 * Math.tan(camera.fov * PI / 360) * camera.aspect * (videoMode ? 0.055 : 0.03);  // label size as a share of screen width
     labelSprites.forEach(s => { const k = camera.position.distanceTo(s.position) * fovK; s.scale.set(k * 8, k, 1); });
     arcMat.opacity *= clamp((camDist - 12) / 50, 0.12, 1);
 
