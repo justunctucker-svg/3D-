@@ -960,6 +960,10 @@
       camera.lookAt(target);
       controls.target.copy(target);
     } else controls.update();
+    // keep near/far tight around the subject: the composer's depth buffer is only 16-bit
+    const camDist = camera.position.distanceTo(controls.target);
+    camera.near = Math.max(0.2, camDist * 0.3); camera.far = camDist * 5 + 200;
+    camera.updateProjectionMatrix();
 
     // HUD
     ui.gHammer.textContent = (m.ham * DEG).toFixed(0) + '°';

@@ -694,7 +694,7 @@
   let lastCap = -1;
   function update(t, wall) {
     const idle = reducedMotion ? 0 : 1;
-    launcher.rotation.set(Math.sin(wall * 0.5) * 0.01 * idle, Math.sin(wall * 0.37) * 0.02 * idle, 0);
+    // float only: the grenade is not parented to the launcher, so the tube must not rotate around it
     launcher.position.y = Math.sin(wall * 0.8) * 0.05 * idle;
 
     // firing mechanism
@@ -849,6 +849,10 @@
       camera.lookAt(target);
       controls.target.copy(target);
     } else controls.update();
+    // keep near/far tight around the subject: the composer's depth buffer is only 16-bit
+    const camDist = camera.position.distanceTo(controls.target);
+    camera.near = Math.max(0.2, camDist * 0.3); camera.far = camDist * 5 + 200;
+    camera.updateProjectionMatrix();
 
     // HUD
     ui.gHammer.textContent = ham < -0.8 ? 'Cocked' : ham < -0.05 ? 'Moving' : 'Down';
