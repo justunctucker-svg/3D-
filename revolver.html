@@ -114,6 +114,25 @@
   .time { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 9ch; text-align: right; }
   .hint { font-size: 10px; color: var(--muted); letter-spacing: 0.08em; }
 
+  /* Shorts recording layout (9:16): keeps text clear of the YouTube Shorts overlay at the bottom and right edge */
+  body.video .transport { display: none; }
+  body.video .hud { padding-top: 30px; }
+  body.video .top { flex-direction: column; gap: 0; }
+  body.video .brand h1 { font-size: 30px; }
+  body.video .brand p { display: block; font-size: 9px; }
+  body.video .mode { position: absolute; top: 34px; right: 16px; margin: 0; }
+  body.video .gauges {
+    position: absolute; left: 16px; right: 16px; top: 66%;
+    grid-template-columns: none; grid-template-rows: auto auto; grid-auto-flow: column;
+    column-gap: 8px; row-gap: 3px; padding: 8px 10px; font-size: 10px;
+  }
+  body.video .gauges dt { font-size: 8px; }
+  body.video .gauges dd { text-align: left; min-width: 0; white-space: nowrap; }
+  body.video .bottom { position: absolute; top: 128px; left: 16px; right: 60px; }
+  body.video .caption { min-height: 0; justify-content: flex-start; }
+  body.video .caption .text { font-size: 19px; }
+  body.video .caption > * { transition: none; }
+
   @media (max-width: 640px) {
     .gauges { font-size: 10px; padding: 8px 10px; column-gap: 10px; }
     .gauges dd { min-width: 7ch; }
@@ -711,6 +730,7 @@
     ui.track.appendChild(m);
   });
 
+  let videoMode = false;
   let t = 0, playing = !reducedMotion, speed = 1, xMode = 'auto', camMode = 'director';
   if (reducedMotion) t = 12.6;
   const setPlayIcon = () => {
@@ -748,7 +768,9 @@
   function resize() {
     const w = stage.clientWidth || window.innerWidth, h = stage.clientHeight || window.innerHeight;
     renderer.setSize(w, h, false); composer.setSize(w, h);
-    camera.aspect = w / h; camera.updateProjectionMatrix();
+    camera.aspect = w / h;
+    if (videoMode) camera.setViewOffset(w, h, 0, -h * 0.07, w, h); else camera.clearViewOffset();
+    camera.updateProjectionMatrix();
     bgMat.uniforms.uRes.value.set(w, h);
   }
   window.addEventListener('resize', resize); resize();
@@ -926,7 +948,7 @@
 
     // camera
     if (camMode === 'director') {
-      const c = camAt(t), fit = Math.max(1, 1.45 / camera.aspect);
+      const c = camAt(t), fit = Math.max(1, (videoMode ? 1.55 : 1.45) / camera.aspect);
       const d = c.d * (c.d > 20 ? fit : Math.sqrt(fit));
       const target = v3.set(...c.tg);
       gunBase.localToWorld(target);
@@ -947,8 +969,8 @@
     let ci = CAPTIONS.findIndex(c => t >= c[0] && t < c[1]); if (ci < 0) ci = 0;
     if (ci !== lastCap) {
       lastCap = ci; const c = CAPTIONS[ci];
-      ui.cap.classList.add('swap');
-      setTimeout(() => { ui.capStep.textContent = c[2]; ui.capStep.className = 'step' + (c[4] ? ' x' : ''); ui.capText.textContent = c[3]; ui.cap.classList.remove('swap'); }, 180);
+      const apply = () => { ui.capStep.textContent = c[2]; ui.capStep.className = 'step' + (c[4] ? ' x' : ''); ui.capText.textContent = c[3]; ui.cap.classList.remove('swap'); };
+      if (videoMode) apply(); else { ui.cap.classList.add('swap'); setTimeout(apply, 180); }
     }
     ui.fill.style.width = (t / LOOP * 100) + '%';
     if (document.activeElement !== ui.scrub) ui.scrub.value = Math.round(t / LOOP * 1000);
@@ -959,13 +981,20 @@
   let last = performance.now();
   function frame(now) {
     const dt = Math.min(0.05, (now - last) / 1000); last = now;
-    if (playing) t = (t + dt * speed) % LOOP;
-    update(t, now / 1000);
-    composer.render();
+    if (!videoMode) {
+      if (playing) t = (t + dt * speed) % LOOP;
+      update(t, now / 1000);
+      composer.render();
+    }
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
   // test hook: render a given timeline time synchronously
-  window.__seek = (time, opts = {}) => { playing = false; setPlayIcon(); t = time; if (opts.x) { xMode = opts.x; } update(t, 0); composer.render(); };
+  window.__seek = (time, opts = {}) => { playing = false; setPlayIcon(); t = time; if (opts.x) { xMode = opts.x; } update(t, videoMode ? time : 0); composer.render(); };
+  // recording hook: 9:16 layout, full-res rendering, frames driven only by __seek
+  window.__video = (dpr = 3) => {
+    videoMode = true; document.body.classList.add('video');
+    renderer.setPixelRatio(dpr); composer.setPixelRatio && composer.setPixelRatio(dpr); resize();
+  };
 })();
 </script>
