@@ -676,7 +676,7 @@
     arcGeo.setDrawRange(0, Math.floor(ARC_IDX * reveal / 36) * 36);
     arcMat.opacity = 0.75 * (1 - smooth(span(t, 32.8, 33.6)));
     apexLabel.visible = t > LAUNCH[1] + APEX_T && t < 33.6; apexLabel.position.set(APEX.x, APEX.y + 6, 0);
-    landLabel.visible = t > IMPACT + 1.5 && t < 33.6; landLabel.position.set(LAND_X, 14, 0);
+    landLabel.visible = t > IMPACT + 1.5 && t < 33.6; landLabel.position.set(LAND_X - 12, 18, 0);
 
     // x-ray blend
     const xr = xMode === 'on' ? 1 : xMode === 'off' ? 0 : xrayAuto(t);
@@ -710,7 +710,8 @@
     const camDist = camera.position.distanceTo(controls.target);
     camera.near = Math.max(0.2, camDist * 0.3); camera.far = camDist * 6 + 800;
     camera.updateProjectionMatrix();
-    labelSprites.forEach(s => { const k = camera.position.distanceTo(s.position) * 0.034; s.scale.set(k * 8, k, 1); });
+    const fovK = 2 * Math.tan(camera.fov * PI / 360) * camera.aspect * 0.028;  // label width ≈ 22% of the screen
+    labelSprites.forEach(s => { const k = camera.position.distanceTo(s.position) * fovK; s.scale.set(k * 8, k, 1); });
     arcMat.opacity *= clamp((camDist - 12) / 50, 0.12, 1);
 
     // HUD
