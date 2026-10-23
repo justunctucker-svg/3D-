@@ -324,12 +324,27 @@
   const canvasTex = (w, h, draw) => { const cv = document.createElement('canvas'); cv.width = w; cv.height = h; draw(cv.getContext('2d'), w, h); const t = new T.CanvasTexture(cv); t.wrapS = t.wrapT = T.RepeatWrapping; return t; };
 
   // ---------------------------------------------------------------- materials
+  // micro-surface: speckled cerakote / anodising noise drives roughness and a faint bump; stippled grip; woven nylon
+  const noiseTex = (seed, base, amp, blot) => canvasTex(256, 256, (x, w, h) => {
+    const img = x.createImageData(w, h);
+    for (let i = 0; i < w * h; i++) { const px = i % w, py = i / w | 0; const v = base + (rand(i, seed) - 0.5) * amp + (rand((px >> 4) + (py >> 4) * 97, seed + 1) - 0.5) * blot; img.data[i * 4] = img.data[i * 4 + 1] = img.data[i * 4 + 2] = v; img.data[i * 4 + 3] = 255; }
+    x.putImageData(img, 0, 0);
+  });
+  const grain = noiseTex(21, 215, 60, 26); grain.repeat.set(0.6, 0.6);
+  const stipple = canvasTex(256, 256, (x, w, h) => { x.fillStyle = '#808080'; x.fillRect(0, 0, w, h); for (let i = 0; i < 2600; i++) { x.fillStyle = rand(i, 31) < 0.5 ? '#d0d0d0' : '#383838'; x.beginPath(); x.arc(rand(i, 32) * w, rand(i, 33) * h, 1.5 + rand(i, 34) * 2.5, 0, 2 * PI); x.fill(); } });
+  stipple.repeat.set(3, 3);
+  const weave = canvasTex(256, 256, (x, w, h) => { x.fillStyle = '#8d7b5a'; x.fillRect(0, 0, w, h); for (let i = 0; i < 64; i++) for (let j = 0; j < 64; j++) { const o = (i + j) % 2; x.fillStyle = o ? '#9c8a66' : '#7e6d4f'; x.fillRect(i * 4, j * 4, o ? 4 : 3, o ? 3 : 4); } });
+  weave.repeat.set(3, 3); weave.encoding = T.sRGBEncoding;
   const std = (color, metalness, roughness, extra = {}) => { const m = new T.MeshStandardMaterial(Object.assign({ color, metalness, roughness }, extra)); m.color.convertSRGBToLinear(); return m; };
-  const tan = std(0xa98d66, 0.25, 0.55), tanDark = std(0x8d7553, 0.2, 0.6), fabric = std(0x9c8a68, 0, 0.95);
-  const black = std(0x1d1e20, 0.6, 0.45), blackMatte = std(0x262729, 0.3, 0.7), steelM = std(0x8c9197, 0.9, 0.3);
-  const glass = std(0x0a0e12, 0.9, 0.08), redDot = new T.MeshBasicMaterial({ color: new T.Color(3, 0.3, 0.2), toneMapped: false });
+  const tex = (o = {}) => Object.assign({ roughnessMap: grain, bumpMap: grain, bumpScale: 0.0025 }, o);
+  const tan = std(0xa48862, 0.15, 0.78, tex()), tanDark = std(0x8a7352, 0.15, 0.8, tex()), fabric = std(0xffffff, 0, 0.95, { map: weave, bumpMap: weave, bumpScale: 0.006 });
+  const black = std(0x1f2022, 0.55, 0.6, tex()), blackMatte = std(0x252628, 0.3, 0.85, tex()), steelM = std(0x8c9197, 0.9, 0.3);
+  const steelDark = std(0x74787d, 0.9, 0.38, tex()), holeM = std(0x060606, 0, 1), rubber = std(0x1a1a1b, 0, 0.9, tex({ bumpScale: 0.004 }));
+  const gripM = std(0xa08560, 0.05, 0.85, { roughnessMap: stipple, bumpMap: stipple, bumpScale: 0.012 }), supM = std(0x94795a, 0.1, 0.75, tex({ bumpScale: 0.0035 }));
+  const glass = std(0x0a0e12, 0.9, 0.08), lensM = std(0x1b2a3a, 1, 0.05), redDot = new T.MeshBasicMaterial({ color: new T.Color(3, 0.3, 0.2), toneMapped: false });
   const brassM = std(0xc99a45, 1, 0.3), caseHead = std(0xb9bec4, 0.95, 0.3), copperM = std(0xc27a4e, 1, 0.32);
   const springM = std(0xb0b4b8, 0.9, 0.35), boltM = std(0x3a3d41, 0.85, 0.35);
+  const webbing = std(0x6f5e43, 0, 0.9, tex({ bumpScale: 0.004 }));
   const dummyMat = std(0xd2702e, 0.05, 0.6), dummyDark = std(0x2a2b2d, 0.3, 0.6), standMat = std(0x55595e, 0.7, 0.45);
   const groundTex = canvasTex(256, 256, (x, w, h) => {
     x.fillStyle = '#6a5c44'; x.fillRect(0, 0, w, h);
@@ -357,7 +372,7 @@
   const xBore = xray(0x9fe4ff, 0.05, 1.0, 'body');
 
   const shells = [], internals = [];
-  const fadeMats = [tan, tanDark, fabric, black, blackMatte, glass];
+  const fadeMats = [tan, tanDark, fabric, black, blackMatte, glass, steelDark, holeM, rubber, gripM, supM, lensM, webbing];
   const envMats = [groundMat, bermMat, sandMat];
   function part(geo, mat, xmat, parent, pos, rot) {
     const g = new T.Group();
@@ -390,67 +405,169 @@
   const shadowTex = canvasTex(128, 128, (x, w) => { const g = x.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2); g.addColorStop(0, 'rgba(0,0,0,0.55)'); g.addColorStop(0.6, 'rgba(0,0,0,0.3)'); g.addColorStop(1, 'rgba(0,0,0,0)'); x.fillStyle = g; x.fillRect(0, 0, w, w); });
   const shadowMat = new T.MeshBasicMaterial({ map: shadowTex, transparent: true, depthWrite: false, fog: false });
   const contactShadow = (w, d, x, z) => { const m = new T.Mesh(new T.PlaneGeometry(w, d), shadowMat); m.rotation.x = -PI / 2; m.position.set(x, 0.03, z); scene.add(m); return m; };
-  contactShadow(22, 5, 2, 0); contactShadow(7, 6, 300, 0);
+  contactShadow(16, 3.5, 2, 0); contactShadow(7, 6, 300, 0);
 
   // ---------------------------------------------------------------- XM250 (gun space: bore along +x at y = 0.4, +z = left side of the gun)
   const BORE_Y = 0.4, CHAMBER_X = 3.2, MUZZLE_X = 12.45;
   const PIVOT = V(-6.0, -1.4, 0);                         // stock toe resting on the sandbag
   const rig = new T.Group(); rig.position.set(-6.0, 2.5, 0); scene.add(rig);
   const gun = new T.Group(); gun.position.set(6.0, 1.4, 0); rig.add(gun);
-  // receiver
-  part(extrudeZ([[-3.0, 1.05], [3.2, 1.05], [3.2, -0.2], [2.6, -0.65], [0.4, -0.65], [0.2, -1.2], [-2.3, -1.2], [-2.6, -0.65], [-3.0, -0.65]], 0.95, 0.05), tan, xBody, gun);
-  // M-LOK handguard with slots
-  part(extrudeZ([[3.2, 1.0], [6.8, 1.0], [6.8, -0.2], [3.2, -0.2]], 0.86, 0.05), tan, xBody, gun);
-  for (let i = 0; i < 5; i++) [1, -1].forEach(s => { solid(box(0.45, 0.14, 0.02), blackMatte, gun, [3.7 + i * 0.6, 0.62, s * 0.49]); solid(box(0.45, 0.14, 0.02), blackMatte, gun, [3.7 + i * 0.6, 0.18, s * 0.49]); });
-  // top rail (rear on the receiver, front on the handguard), the feed cover carries its own piece
-  const rail = (x0, x1, parent, y) => { part(box(x1 - x0, 0.16, 0.5), black, xBody, parent, [(x0 + x1) / 2, y, 0]); for (let x = x0 + 0.08; x < x1; x += 0.16) solid(box(0.07, 0.06, 0.52), black, parent, [x, y + 0.1, 0]); };
-  rail(-2.9, -0.25, gun, 1.13); rail(3.2, 6.7, gun, 1.08);
-  // feed cover, hinged at its front edge
-  const cover = new T.Group(); cover.position.set(2.75, 1.05, 0); gun.add(cover);
-  part(box(2.95, 0.22, 0.95), tan, xBody, cover, [-1.47, 0.08, 0]);
-  rail(-2.9, -0.1, cover, 0.27);
-  part(box(0.5, 0.14, 0.2), black, xBody, cover, [-2.75, 0.06, 0.55]);          // cover latch
-  // holographic sight on the rear rail
-  const optic = new T.Group(); optic.position.set(-1.25, 1.25, 0); gun.add(optic);
-  part(box(1.2, 0.18, 0.62), tanDark, xBody, optic, [0, 0.12, 0]);
-  part(box(1.0, 0.62, 0.62), tan, xBody, optic, [0, 0.52, 0]);
-  solid(box(0.02, 0.4, 0.42), glass, optic, [-0.51, 0.55, 0]); solid(box(0.02, 0.4, 0.42), glass, optic, [0.51, 0.55, 0]);
-  solid(new T.SphereGeometry(0.03, 8, 6), redDot, optic, [0.3, 0.55, 0]);
-  // flip-up iron sights
-  part(box(0.25, 0.4, 0.3), black, xBody, gun, [-2.6, 1.42, 0]); part(box(0.25, 0.4, 0.3), black, xBody, gun, [6.4, 1.36, 0]);
-  // stock: skeletonized, collapsible, with butt pad
-  part(cylX(0.22, 1.2, 16), tanDark, xBody, gun, [-3.55, 0.45, 0]);
-  { const sh = new T.Shape(); [[-3.9, 1.0], [-6.35, 1.0], [-6.35, -1.45], [-5.85, -1.45], [-4.5, -0.15], [-3.9, -0.15]].forEach(([x, y], i) => i ? sh.lineTo(x, y) : sh.moveTo(x, y));
-    const hole = new T.Path(); [[-5.95, 0.6], [-5.95, -0.9], [-4.85, 0.1], [-4.85, 0.6]].forEach(([x, y], i) => i ? hole.lineTo(x, y) : hole.moveTo(x, y)); sh.holes.push(hole);
-    const g = new T.ExtrudeGeometry(sh, { depth: 0.8, bevelEnabled: true, bevelThickness: 0.05, bevelSize: 0.05, bevelSegments: 2 }); g.translate(0, 0, -0.4);
-    part(autoSmooth(g, 40), tan, xBody, gun); }
-  part(box(0.12, 2.5, 0.85), blackMatte, xBody, gun, [-6.42, -0.22, 0]);
-  // pistol grip, trigger guard, trigger
-  part(extrudeZ([[-1.95, -1.15], [-1.15, -1.15], [-1.55, -3.0], [-2.4, -3.0]], 0.7, 0.12), tan, xBody, gun);
-  part(extrudeZ([[-1.1, -1.15], [-0.95, -1.15], [-0.75, -1.75], [-0.1, -1.75], [-0.1, -1.6], [-0.65, -1.6], [-0.85, -1.15]], 0.3, 0.03), tan, xBody, gun);
-  const trigger = new T.Group(); trigger.position.set(-0.55, -1.15, 0); gun.add(trigger);
-  part(extrudeZ([[-0.05, 0.05], [0.08, 0.05], [0.06, -0.3], [-0.1, -0.45], [-0.13, -0.38], [-0.03, -0.28]], 0.14, 0.02), black, xInner, trigger);
-  // charging handle (left side)
-  const chHandle = new T.Group(); chHandle.position.set(1.9, 0.35, 0.5); gun.add(chHandle);
-  part(box(0.35, 0.18, 0.3), black, xBody, chHandle, [0, 0, 0.12]);
-  // ejection port with dust cover (right side)
+
+  // shape helpers: outlines with holes, rounded slots, merged small parts (one draw call each)
+  const shape = (pts, holes = []) => { const s = new T.Shape(); pts.forEach(([x, y], i) => i ? s.lineTo(x, y) : s.moveTo(x, y)); holes.forEach(h => s.holes.push(h)); return s; };
+  const poly = pts => { const p = new T.Path(); pts.forEach(([x, y], i) => i ? p.lineTo(x, y) : p.moveTo(x, y)); return p; };
+  const slot = (x0, x1, y, r) => { const p = new T.Path(); p.moveTo(x0, y - r); p.lineTo(x1, y - r); p.absarc(x1, y, r, -PI / 2, PI / 2, false); p.lineTo(x0, y + r); p.absarc(x0, y, r, PI / 2, 3 * PI / 2, false); return p; };
+  const circ = (x, y, r) => { const p = new T.Path(); p.absarc(x, y, r, 0, 2 * PI, true); return p; };
+  const roundRect = (x0, y0, x1, y1, r) => { const s = new T.Shape(); s.moveTo(x0 + r, y0); s.lineTo(x1 - r, y0); s.quadraticCurveTo(x1, y0, x1, y0 + r); s.lineTo(x1, y1 - r); s.quadraticCurveTo(x1, y1, x1 - r, y1); s.lineTo(x0 + r, y1); s.quadraticCurveTo(x0, y1, x0, y1 - r); s.lineTo(x0, y0 + r); s.quadraticCurveTo(x0, y0, x0 + r, y0); return s; };
+  const extrudeS = (s, depth, bevel = 0.03, seg = 2) => { const g = new T.ExtrudeGeometry(s, { depth, bevelEnabled: bevel > 0, bevelThickness: bevel, bevelSize: bevel, bevelSegments: seg, curveSegments: 10 }); g.translate(0, 0, -depth / 2); return autoSmooth(g, 40); };
+  const alongXS = (s, len, bevel = 0) => { const g = new T.ExtrudeGeometry(s, { depth: len, bevelEnabled: bevel > 0, bevelThickness: bevel, bevelSize: bevel, bevelSegments: 2, curveSegments: 10 }); g.rotateY(PI / 2); return autoSmooth(g, 40); };   // (z, y) section run along +x from 0
+  const plateY = (s, h, bevel = 0.02) => { const g = new T.ExtrudeGeometry(s, { depth: h, bevelEnabled: bevel > 0, bevelThickness: bevel, bevelSize: bevel, bevelSegments: 2, curveSegments: 8 }); g.rotateX(-PI / 2); return autoSmooth(g, 40); };      // (x, -z) outline, thickness up +y
+  function merge(list) {
+    const pos = [], nor = [], uv = [];
+    list.forEach(([g, p, r]) => {
+      const h = g.index ? g.toNonIndexed() : g.clone();
+      if (r) h.applyMatrix4(new T.Matrix4().makeRotationFromEuler(new T.Euler(...r)));
+      h.translate(...p);
+      const a = h.attributes; for (const v of a.position.array) pos.push(v); for (const v of a.normal.array) nor.push(v);
+      if (a.uv) for (const v of a.uv.array) uv.push(v); else for (let i = 0; i < a.position.count * 2; i++) uv.push(0);
+    });
+    const out = new T.BufferGeometry();
+    out.setAttribute('position', new T.Float32BufferAttribute(pos, 3)); out.setAttribute('normal', new T.Float32BufferAttribute(nor, 3)); out.setAttribute('uv', new T.Float32BufferAttribute(uv, 2));
+    return out;
+  }
+  // MIL-STD-1913 rail: dovetail base with cross slots every 1 cm
+  const railBase = shape([[-0.16, 0], [0.16, 0], [0.21, 0.045], [0.17, 0.065], [-0.17, 0.065], [-0.21, 0.045]]);
+  const railLug = shape([[-0.16, 0], [0.16, 0], [0.21, 0.045], [0.17, 0.085], [0.15, 0.11], [-0.15, 0.11], [-0.17, 0.085], [-0.21, 0.045]]);
+  const lugGeo = alongXS(railLug, 0.052);
+  const rail = (x0, x1, parent, y, mat = tan) => {
+    const list = [[alongXS(railBase, x1 - x0), [x0, y, 0]]];
+    for (let x = x0 + 0.03; x + 0.052 < x1; x += 0.1) list.push([lugGeo, [x, y, 0]]);
+    part(merge(list), mat, xBody, parent);
+  };
+  const pinHeads = (pts, r, mat, parent, side = [1, -1], halfW = 0.47) => solid(merge(pts.flatMap(([x, y]) => side.map(s => [cylZ(r, 0.03, 14), [x, y, s * halfW]]))), mat, parent);
+
+  // upper receiver: full height at the rear, cut down under the feed cover, front trunnion block
+  part(extrudeS(shape([[-3.05, 1.07], [-0.2, 1.07], [-0.2, 0.9], [2.75, 0.9], [2.75, 1.07], [3.25, 1.07], [3.25, -0.15], [-3.05, -0.15]]), 0.86, 0.05), tan, xBody, gun);
+  rail(-2.95, -0.4, gun, 1.07);
+  // lower receiver (slightly narrower: the seam between the two halves shows as a step)
+  part(extrudeS(shape([[-3.0, -0.15], [3.25, -0.15], [3.25, -0.4], [2.55, -0.6], [0.45, -0.6], [0.3, -1.12], [-2.35, -1.12], [-2.75, -0.62], [-3.0, -0.55]]), 0.8, 0.05), tan, xBody, gun);
+  // pouch bracket under the feed side
+  part(extrudeS(roundRect(0.45, -0.78, 2.25, -0.58, 0.05), 0.72, 0.03), black, xBody, gun, [0, 0, 0.04]);
+  // takedown / hinge pins and screw heads
+  pinHeads([[-2.7, -0.38], [2.95, -0.32], [-0.5, -0.4], [1.0, -0.38]], 0.055, steelDark, gun, [1, -1], 0.45);
+  pinHeads([[-2.88, 0.86], [3.0, 0.75]], 0.055, steelDark, gun, [1, -1], 0.48);
+  pinHeads([[-1.15, -0.85], [-0.55, -1.0]], 0.04, steelDark, gun, [1, -1], 0.45);
+  // left side: belt feed guide and charging-handle channel
+  part(extrudeS(shape([[0.95, 0.6], [1.95, 0.6], [2.0, 0.9], [0.9, 0.9]]), 0.06, 0.02), black, xBody, gun, [0, 0, 0.5]);
+  solid(box(2.7, 0.1, 0.02), holeM, gun, [0.9, 0.35, 0.483]);
+  // right side: ejection port (dark opening) and the spring dust cover over it
+  solid(box(1.0, 0.44, 0.01), holeM, gun, [1.5, 0.3, -0.484]);
   const dustCover = new T.Group(); dustCover.position.set(1.5, 0.05, -0.49); gun.add(dustCover);
-  part(box(1.0, 0.5, 0.03), black, xBody, dustCover, [0, 0.25, 0]);
-  // barrel, gas block, suppressor
-  part(cylX(0.13, 6.2, 16), black, xBody, gun, [CHAMBER_X + 3.1, BORE_Y, 0]);
+  part(merge([[box(1.0, 0.5, 0.03), [0, 0.25, 0]], [box(0.9, 0.03, 0.02), [0, 0.12, -0.02]], [box(0.9, 0.03, 0.02), [0, 0.38, -0.02]], [box(0.04, 0.42, 0.03), [0.42, 0.25, -0.02]]]), blackMatte, xBody, dustCover);
+  solid(cylX(0.025, 1.05, 8), steelDark, dustCover, [0, 0, 0]);
+  // engraved markings on the left side
+  { const tex = canvasTex(512, 112, (x, w, h) => {
+      x.clearRect(0, 0, w, h); x.fillStyle = 'rgba(58,46,30,0.95)';
+      x.font = '700 50px "Barlow Condensed", Arial Narrow, sans-serif'; x.fillText('XM250', 8, 50);
+      x.font = '500 26px "IBM Plex Mono", monospace'; x.fillText('CAL 6.8x51mm', 8, 88); x.fillText('NGSW-AR', 250, 88);
+      x.font = '500 22px "IBM Plex Mono", monospace'; x.fillText('SN 2250-0417', 300, 40);
+    });
+    tex.encoding = T.sRGBEncoding;
+    const m = new T.MeshStandardMaterial({ map: tex, alphaTest: 0.35, roughness: 0.6, polygonOffset: true, polygonOffsetFactor: -2 }); fadeMats.push(m);
+    solid(new T.PlaneGeometry(1.95, 0.43), m, gun, [-1.75, 0.66, 0.484]);
+    const sel = canvasTex(128, 64, (x, w, h) => { x.clearRect(0, 0, w, h); x.fillStyle = '#e9e4d8'; x.font = '700 30px Arial'; x.fillText('S', 6, 30); x.fillText('F', 92, 30); x.fillText('A', 50, 62); });
+    sel.encoding = T.sRGBEncoding;
+    const m2 = new T.MeshStandardMaterial({ map: sel, alphaTest: 0.35, roughness: 0.6, polygonOffset: true, polygonOffsetFactor: -2 }); fadeMats.push(m2);
+    solid(new T.PlaneGeometry(0.5, 0.25), m2, gun, [-1.92, -0.78, 0.454]); }
+  // ambidextrous selector
+  [1, -1].forEach(s => { solid(cylZ(0.1, 0.04, 18), black, gun, [-1.92, -0.85, s * 0.45]); solid(extrudeS(shape([[0, -0.035], [0.32, -0.025], [0.36, 0], [0.32, 0.03], [0, 0.035]]), 0.035, 0.01), black, gun, [-1.92, -0.85, s * 0.47], [0, 0, 0.35]); });
+
+  // feed cover, hinged at its front edge; carries its own rail section
+  const cover = new T.Group(); cover.position.set(2.75, 1.07, 0); gun.add(cover);
+  part(extrudeS(shape([[-2.95, -0.17], [-0.03, -0.17], [0.0, -0.08], [0.0, 0.0], [-2.95, 0.0]]), 0.8, 0.04), tan, xBody, cover);
+  rail(-2.85, -0.12, cover, 0.0);
+  part(cylZ(0.07, 0.92, 16), black, xBody, cover, [0, -0.07, 0]);                          // hinge knuckle
+  part(extrudeS(shape([[-3.08, -0.14], [-2.92, -0.14], [-2.92, 0.02], [-3.04, 0.02]]), 0.62, 0.02), black, xBody, cover);   // latch tab
+  pinHeads([[-2.7, -0.09], [-0.4, -0.09]], 0.04, steelDark, cover, [1, -1], 0.44);
+
+  // XM157-style fire-control optic on the rear rail: scope tube inside a boxy rangefinder housing
+  const optic = new T.Group(); optic.position.set(-1.62, 1.18, 0); gun.add(optic);
+  part(merge([[extrudeS(roundRect(-0.95, 0, -0.55, 0.32, 0.05), 0.46, 0.02), [0, 0, 0]], [extrudeS(roundRect(0.35, 0, 0.75, 0.32, 0.05), 0.46, 0.02), [0, 0, 0]]]), tanDark, xBody, optic);   // QD mount rings
+  part(lathe([[0, -1.32], [0.17, -1.32], [0.2, -1.28], [0.2, -0.98], [0.15, -0.9], [0.15, 0.2], [0.18, 0.3], [0.18, 1.12], [0, 1.12]], 36), tan, xBody, optic, [0, 0.45, 0]);
+  part(extrudeS(roundRect(-0.35, 0.18, 1.1, 0.82, 0.1), 0.62, 0.05), tan, xBody, optic);   // housing over the front half
+  solid(merge([[cylZ(0.05, 0.06, 14), [0.1, 0.88, 0.12]], [cylZ(0.05, 0.06, 14), [0.3, 0.88, 0.12]], [cylZ(0.04, 0.06, 14), [0.5, 0.88, 0.12]]].map(([g, p]) => [g.clone().rotateX(PI / 2), p])), blackMatte, optic);   // buttons
+  part(cylZ(0.09, 0.14, 22).rotateZ(0), tanDark, xBody, optic, [-0.65, 0.45, 0.2]);                               // turret
+  part(cylZ(0.08, 0.12, 22).rotateX(PI / 2), tanDark, xBody, optic, [-0.65, 0.66, 0]);
+  solid(cylX(0.16, 0.02, 32), lensM, optic, [1.165, 0.45, 0]);                                                     // objective
+  solid(cylX(0.17, 0.02, 32), lensM, optic, [-1.33, 0.45, 0]);                                                    // ocular
+  solid(merge([[cylX(0.055, 0.02, 18), [1.165, 0.7, 0.16]], [cylX(0.055, 0.02, 18), [1.165, 0.7, -0.16]]]), lensM, optic);   // laser windows
+  solid(new T.SphereGeometry(0.015, 8, 6), redDot, optic, [-1.345, 0.45, 0]);
+
+  // stock: collapsible, skeletonised, cheek riser, rubber butt pad, on a buffer tube
+  part(lathe([[0.21, -4.35], [0.21, -3.05], [0.25, -3.02], [0.25, -2.98]], 24), tanDark, xBody, gun, [0, 0.45, 0]);
+  part(extrudeS(shape([[-3.9, 1.02], [-6.3, 1.02], [-6.3, -1.4], [-5.85, -1.42], [-4.55, -0.2], [-3.9, -0.12]], [poly([[-5.92, 0.62], [-5.92, -0.85], [-4.9, 0.1], [-4.9, 0.62]])]), 0.66, 0.08, 3), tan, xBody, gun);
+  part(extrudeS(roundRect(-5.85, 1.02, -4.05, 1.22, 0.08), 0.5, 0.04), tan, xBody, gun);                          // cheek riser
+  part(extrudeS(shape([[-6.3, 1.06], [-6.48, 1.02], [-6.52, -1.38], [-6.3, -1.44]]), 0.82, 0.05, 3), rubber, xBody, gun);
+  solid(merge(Array.from({ length: 9 }, (_, i) => [box(0.04, 0.05, 0.84), [-6.53, 0.8 - i * 0.27, 0]])), rubber, gun);   // pad ribs
+  part(extrudeS(shape([[-4.45, -0.24], [-4.1, -0.2], [-4.1, -0.32], [-4.4, -0.36]]), 0.2, 0.02), black, xBody, gun);     // adjustment lever
+  [1, -1].forEach(s => solid(cylZ(0.09, 0.04, 16), steelDark, gun, [-5.6, 0.75, s * 0.4]));                      // QD sling sockets
+
+  // pistol grip (stippled), trigger guard, trigger
+  part(extrudeS(shape([[-2.05, -1.1], [-1.15, -1.1], [-1.2, -1.45], [-1.3, -1.62], [-1.32, -1.85], [-1.45, -2.05], [-1.48, -2.3], [-1.62, -2.95], [-1.75, -3.05], [-2.35, -3.05], [-2.48, -2.9], [-2.2, -1.5]]), 0.6, 0.11, 3), gripM, xBody, gun);
+  part(extrudeS(shape([[-1.25, -1.1], [0.0, -1.1], [0.0, -1.35], [-0.35, -1.82], [-1.45, -1.82], [-1.45, -1.55], [-1.25, -1.4]], [poly([[-1.13, -1.2], [-0.12, -1.2], [-0.12, -1.32], [-0.42, -1.71], [-1.33, -1.71], [-1.33, -1.6], [-1.13, -1.46]])]), 0.26, 0.03), tan, xBody, gun);
+  const trigger = new T.Group(); trigger.position.set(-0.55, -1.15, 0); gun.add(trigger);
+  part(extrudeZ([[-0.05, 0.05], [0.08, 0.05], [0.07, -0.18], [0.0, -0.36], [-0.1, -0.45], [-0.13, -0.38], [-0.06, -0.28], [-0.04, -0.15]], 0.12, 0.02), black, xInner, trigger);
+
+  // charging handle (left side) riding in its channel
+  const chHandle = new T.Group(); chHandle.position.set(1.9, 0.35, 0.5); gun.add(chHandle);
+  part(box(0.24, 0.1, 0.12), black, xBody, chHandle, [0, 0, 0.04]);
+  part(lathe([[0, 0.08], [0.09, 0.08], [0.1, 0.12], [0.1, 0.3], [0.08, 0.33], [0, 0.33]], 18).rotateY(-PI / 2), blackMatte, xBody, chHandle, [0, 0, 0]);
+
+  // M-LOK handguard: hollow box, slotted sides and belly, chamfered corners, end cap; barrel visible through the slots
+  { const slots = [];
+    for (let i = 0; i < 7; i++) [0.66, 0.2].forEach(y => slots.push(slot(3.62 + i * 0.45, 3.86 + i * 0.45, y, 0.04)));
+    const side = extrudeS(shape([[3.25, 1.0], [6.85, 1.0], [6.85, -0.18], [3.25, -0.18]], slots), 0.06, 0.02);
+    part(side, tan, xBody, gun, [0, 0, 0.4]); part(side, tan, xBody, gun, [0, 0, -0.4]);
+    part(extrudeS(shape([[3.25, 0.95], [6.85, 0.95], [6.85, 1.07], [3.25, 1.07]]), 0.82, 0.03), tan, xBody, gun);
+    const belly = []; for (let i = 0; i < 6; i++) belly.push(slot(3.7 + i * 0.45, 3.94 + i * 0.45, 0, 0.04));
+    part(plateY(shape([[3.25, -0.36], [6.85, -0.36], [6.85, 0.36], [3.25, 0.36]], belly), 0.07), tan, xBody, gun, [0, -0.17, 0]);
+    const ch = box(3.6, 0.1, 0.1);
+    [[1.0, 0.4], [1.0, -0.4], [-0.15, 0.4], [-0.15, -0.4]].forEach(([y, z]) => part(ch, tan, xBody, gun, [5.05, y, z], [PI / 4, 0, 0]));
+    part(alongXS(shape([[-0.47, -0.2], [0.47, -0.2], [0.47, 1.05], [-0.47, 1.05]].map(([z, y]) => [z, y - BORE_Y]), [circ(0, 0, 0.19)]), 0.08, 0.02), tan, xBody, gun, [6.85, BORE_Y, 0]);
+    pinHeads([[3.45, 0.85], [3.45, 0.0], [6.6, 0.85]], 0.04, steelDark, gun, [1, -1], 0.455);
+    [1, -1].forEach(s => solid(cylZ(0.085, 0.04, 16), steelDark, gun, [6.55, 0.45, s * 0.45])); }
+  rail(2.85, 6.8, gun, 1.07);
+  // low-profile folding front sight on the rail
+  part(extrudeS(shape([[-0.18, 0], [0.18, 0], [0.18, 0.08], [0.06, 0.16], [-0.18, 0.12]]), 0.32, 0.02), black, xBody, gun, [6.55, 1.18, 0]);
+
+  // barrel (fluted after the chamber block), gas block, muzzle device
+  part(lathe([[0, 3.2], [0.19, 3.2], [0.19, 3.85], [0.15, 3.95], [0.135, 4.2], [0.13, 8.95], [0, 8.95]], 24), black, xBody, gun, [0, BORE_Y, 0]);
+  solid(merge(Array.from({ length: 6 }, (_, i) => [box(3.6, 0.03, 0.03), [6.4, Math.cos(i * PI / 3) * 0.125, Math.sin(i * PI / 3) * 0.125], [i * PI / 3, 0, 0]])), holeM, gun, [0, BORE_Y, 0]);
   ghostOnly(cylX(0.06, 9.3, 12), xBore, gun, [CHAMBER_X + 4.65, BORE_Y, 0]);
-  part(box(0.35, 0.65, 0.4), black, xBody, gun, [6.05, 0.62, 0]);
-  part(lathe([[0.15, 9.35], [0.26, 9.45], [0.26, 9.75], [0.25, 9.8], [0.25, 12.35], [0.2, 12.45], [0.06, 12.45]], 24), tan, xBody, gun);
-  part(lathe([[0.27, 9.4], [0.28, 9.45], [0.28, 9.85], [0.27, 9.9]], 24), black, xBody, gun);
+  part(merge([[cylX(0.2, 0.35, 24), [6.05, 0, 0]], [box(0.35, 0.3, 0.3), [6.05, 0.3, 0]]]), black, xBody, gun, [0, BORE_Y, 0]);
+  pinHeads([[5.95, 0.4], [6.15, 0.4]], 0.03, steelDark, gun, [-1], 0.21);
+  part(lathe([[0, 8.9], [0.16, 8.9], [0.17, 8.95], [0.17, 9.4], [0, 9.4]], 24), black, xBody, gun, [0, BORE_Y, 0]);
+
+  // suppressor on the muzzle device, on the bore axis: black ratchet collar, tan body, chamfered end cap with exit hole
+  { const col = [[0.16, 9.28], [0.25, 9.28], [0.27, 9.31]];
+    for (let i = 0; i < 9; i++) { const x = 9.34 + i * 0.065; col.push([0.278, x], [0.278, x + 0.03], [0.266, x + 0.035], [0.266, x + 0.06]); }
+    col.push([0.27, 9.93], [0.25, 9.96], [0, 9.96]);
+    part(lathe(col, 36), black, xBody, gun, [0, BORE_Y, 0]);
+    part(lathe([[0.24, 9.95], [0.252, 9.98], [0.252, 12.22], [0.245, 12.3], [0.2, 12.42], [0.17, 12.45], [0.07, 12.45], [0.06, 12.42], [0.06, 12.25], [0, 12.25]], 40), supM, xBody, gun, [0, BORE_Y, 0]);
+    solid(box(0.18, 0.05, 0.08), black, gun, [9.6, BORE_Y + 0.29, 0]); }
+
   // bipod under the front of the handguard: legs fold back, swing down, splay and extend
   const bipod = new T.Group(); bipod.position.set(6.3, -0.3, 0); gun.add(bipod);
-  part(box(0.5, 0.3, 0.6), black, xBody, bipod, [0, 0, 0]);
+  part(extrudeS(shape([[-0.32, 0.1], [0.32, 0.1], [0.26, -0.08], [0.12, -0.16], [-0.12, -0.16], [-0.26, -0.08]]), 0.62, 0.03), black, xBody, bipod);
+  part(cylZ(0.08, 0.7, 18), steelDark, xBody, bipod, [0, -0.05, 0]);
   const legs = [1, -1].map(s => {
     const hinge = new T.Group(); hinge.position.set(0, -0.05, s * 0.18); bipod.add(hinge);
-    part(new T.CylinderGeometry(0.08, 0.08, 1.9, 10).translate(0, -0.95, 0), tanDark, xBody, hinge);
+    part(new T.CylinderGeometry(0.075, 0.075, 1.75, 16).translate(0, -1.0, 0), black, xBody, hinge);
+    part(new T.CylinderGeometry(0.1, 0.1, 0.22, 16).translate(0, -0.1, 0), black, xBody, hinge);              // knuckle
+    part(new T.CylinderGeometry(0.095, 0.085, 0.16, 16).translate(0, -1.85, 0), blackMatte, xBody, hinge);   // leg lock collar
     const lower = new T.Group(); hinge.add(lower);
-    part(new T.CylinderGeometry(0.055, 0.055, 1.7, 10).translate(0, -1.6, 0), black, xBody, lower);
-    part(box(0.35, 0.08, 0.2), blackMatte, xBody, lower, [0, -2.45, 0]);
+    part(new T.CylinderGeometry(0.055, 0.055, 1.7, 14).translate(0, -1.6, 0), steelDark, xBody, lower);
+    part(lathe([[0, -0.05], [0.1, -0.05], [0.12, 0.0], [0.1, 0.1], [0.05, 0.16], [0, 0.16]], 16).rotateZ(PI / 2), rubber, xBody, lower, [0, -2.44, 0]);   // rubber foot
     return { hinge, lower, s };
   });
 
@@ -488,11 +605,24 @@
   const showRound = makeRound();                              // hybrid-case close-up
   gun.add(showRound); showRound.visible = false;
 
-  // ammo pouch (soft, under the gun)
+  // ammo pouch (soft, under the gun): padded nylon box, webbing straps, top flap with buckle, feed chute
   const pouch = new T.Group(); scene.add(pouch);
-  part(extrudeZ([[0.45, -0.75], [2.25, -0.75], [2.3, -3.3], [0.4, -3.3]], 0.9, 0.15), fabric, xSoft, pouch, [0, 0, 0.18]);
-  part(box(0.25, 2.2, 0.06), tanDark, xSoft, pouch, [1.35, -2.05, 0.7]);
+  part(extrudeS(roundRect(0.42, -3.3, 2.28, -0.8, 0.22), 0.72, 0.12, 4), fabric, xSoft, pouch, [0, 0, 0.18]);
+  part(extrudeS(roundRect(0.36, -1.35, 2.34, -0.72, 0.1), 0.86, 0.06, 3), fabric, xSoft, pouch, [0, 0, 0.18]);      // flap
+  part(merge([-1.75, -2.35, -2.95].map(y => [box(1.9, 0.18, 0.03), [1.35, y, 0.68]])), webbing, xSoft, pouch);       // MOLLE rows
+  part(merge([[box(0.22, 1.0, 0.03), [1.35, -1.5, 0.7]], [box(0.26, 0.14, 0.05), [1.35, -1.95, 0.71]]]), webbing, xSoft, pouch);
+  solid(box(0.3, 0.2, 0.06), blackMatte, pouch, [1.35, -2.08, 0.72]);                                               // buckle
+  solid(merge([0.5, 2.2].map(x => [box(0.04, 2.4, 0.02), [x, -2.05, 0.64]])), webbing, pouch);                       // edge binding
   const POUCH_ON = { p: V(0, 0, 0), r: new T.Euler(0, 0, 0) }, POUCH_OFF = { p: V(1.0, -2.9, 3.6), r: new T.Euler(PI / 2, 0, 0.4) };
+
+  // real shadows from the sun across the gun, sandbags and ground
+  renderer.shadowMap.enabled = true; renderer.shadowMap.type = T.PCFSoftShadowMap;
+  sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048);
+  Object.assign(sun.shadow.camera, { left: -12, right: 12, top: 12, bottom: -12, near: 1, far: 300 });
+  sun.target.position.set(3, 2, 0); scene.add(sun.target); sun.position.set(3 - 60, 2 + 90, 70);
+  sun.shadow.bias = -0.0005; sun.shadow.normalBias = 0.02; sun.shadow.camera.updateProjectionMatrix();
+  ground.receiveShadow = true; [sandbag, sandbag2].forEach(m => { m.castShadow = m.receiveShadow = true; });
+  [gun, pouch].forEach(g => g.traverse(m => { if (m.isMesh && !m.material.isShaderMaterial) m.castShadow = m.receiveShadow = true; }));
 
   // ---------------------------------------------------------------- the range dummy (plastic mannequin target on a spring stand)
   const DUMMY = V(300, 0, 0);
@@ -554,7 +684,7 @@
   const HITS = SHOTS.map((tf, k) => {
     const chase = k === SHOTS.length - 1, miss = !chase && rand(k, 7) < 0.15;
     return { t: chase ? CHASE_HIT : tf + FLIGHT, miss, chase,
-      p: miss ? V(DUMMY.x + 40, 3 + rand(k, 8) * 10, (rand(k, 9) - 0.5) * 16) : V(DUMMY.x - 1.6, chase ? 12.3 : 9.8 + rand(k, 10) * 4.6, chase ? 0.1 : (rand(k, 11) - 0.5) * 1.9) };
+      p: miss ? V(DUMMY.x + 40, 3 + rand(k, 8) * 10, (rand(k, 9) - 0.5) * 16) : V(DUMMY.x - 1.6, chase ? 12.3 : 9.2 + rand(k, 10) * 6, chase ? 0.1 : (rand(k, 11) - 0.5) * 3.0) };
   });
   const SEG = [[0, 5, 'Ready'], [5, 10.5, 'Bipod'], [10.5, 22, 'Reload'], [22, 38.5, 'Slow-mo cycle'], [38.5, 42, 'Aim'], [42, 46.4, 'Full auto'], [46.4, 50.6, 'Slow-mo round'], [50.6, LOOP, 'Cease fire']];
   const CAPTIONS = [
@@ -581,8 +711,8 @@
   const bulletT = () => [flyBullet.position.x, flyBullet.position.y, flyBullet.position.z];
   const muzzleT = () => { gun.updateMatrixWorld(true); const p = gun.localToWorld(V(MUZZLE_X, BORE_Y, 0)); return [p.x, p.y, p.z]; };
   const CAM = [
-    { t: 0, tg: [3, 3.0, 0], az: -0.6, el: 0.25, d: 22 },
-    { t: 4.8, tg: [3, 3.3, 0], az: 0.15, el: 0.14, d: 20 },
+    { t: 0, tg: [1.8, 2.0, 0], az: -0.6, el: 0.25, d: 23 },
+    { t: 4.8, tg: [3, 2.3, 0], az: 0.15, el: 0.14, d: 21 },
     { t: 5.4, tg: [6, 2.4, 0], az: 0.55, el: 0.12, d: 9.5 },
     { t: 10.2, tg: [6, 2.6, 0], az: 0.9, el: 0.1, d: 9.5 },
     { t: 10.9, tg: [1.4, 4.8, 0], az: 0.35, el: 0.6, d: 8.5 },
@@ -598,8 +728,7 @@
     { t: 36.5, tg: [1.55, 5.1, 0], az: 0.45, el: 0.45, d: 3.0 },
     { t: 38.3, tg: [1.55, 5.1, 0], az: 0.65, el: 0.4, d: 3.2 },
     { t: 38.9, tg: [10, 4.6, 0], az: -1.3, el: 0.12, d: 16 },
-    { t: 41.6, tg: [6, 4.2, -1], az: -1.95, el: 0.16, d: 13 },
-    { t: 43.9, tg: [5, 4.0, -1.5], az: -2.15, el: 0.18, d: 12 },
+    { t: 43.9, tg: [9, 4.6, 0], az: -1.4, el: 0.1, d: 14 },
     { t: 44.3, tg: [DUMMY.x, 11, 0], az: -0.6, el: 0.1, d: 26, nf: 1 },
     { t: 46.3, tg: [DUMMY.x, 11, 0], az: -0.8, el: 0.12, d: 24, nf: 1 },
     { t: 46.7, tg: muzzleT, az: 0.5, el: 0.1, d: 4, nf: 1 },
@@ -607,8 +736,8 @@
     { t: 49.9, tg: bulletT, az: -0.3, el: 0.08, d: 1.6, nf: 1 },
     { t: 50.15, tg: [DUMMY.x - 1.6, 12.4, 0], az: -0.95, el: 0.1, d: 9, nf: 1 },
     { t: 52.6, tg: [DUMMY.x, 11, 0], az: -0.7, el: 0.12, d: 22, nf: 1 },
-    { t: 54.6, tg: [3, 3.3, 0], az: -0.5, el: 0.2, d: 22 },
-    { t: LOOP, tg: [3, 3.0, 0], az: -0.6, el: 0.25, d: 22 },
+    { t: 54.6, tg: [2.2, 2.2, 0], az: -0.5, el: 0.2, d: 23 },
+    { t: LOOP, tg: [1.8, 2.0, 0], az: -0.6, el: 0.25, d: 23 },
   ];
   const Wp = (obj, x, y, z) => ({ obj, p: V(x, y, z) });
   const CALLOUTS = [
