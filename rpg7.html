@@ -1,0 +1,889 @@
+<title>RPG-7 X-Ray</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  /* Layout: full-bleed WebGL stage; title + gauges in the top corners, caption and transport bar along the bottom edge */
+  :root {
+    --ink: #0a0b0d;
+    --panel: rgba(14, 16, 19, 0.72);
+    --line: rgba(196, 210, 222, 0.16);
+    --fg: #e8ecef;
+    --muted: #8c959e;
+    --xray: #74d4ff;
+    --flash: #ffb24a;
+    --olive: #9aa36a;
+    --display: "Barlow Condensed", "Arial Narrow", "Helvetica Neue", sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+    color-scheme: dark;
+  }
+  html, body { height: 100%; }
+  body {
+    background: var(--ink);
+    color: var(--fg);
+    font-family: var(--mono);
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+  #stage { position: fixed; inset: 0; }
+  #stage canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+  #stage canvas:active { cursor: grabbing; }
+
+  .hud {
+    position: fixed; inset: 0;
+    pointer-events: none;
+    display: flex; flex-direction: column; justify-content: space-between; gap: 16px;
+    padding-block: max(16px, env(safe-area-inset-top, 0px)) max(14px, env(safe-area-inset-bottom, 0px));
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+  }
+  .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+  .brand h1 {
+    margin: 0;
+    font-family: var(--display); font-weight: 700;
+    font-size: clamp(22px, 3.2vw, 34px); line-height: 0.95;
+    letter-spacing: 0.02em; text-transform: uppercase;
+  }
+  .brand p {
+    margin: 6px 0 0; color: var(--muted);
+    font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase;
+  }
+  .mode {
+    display: inline-block; margin-top: 10px; padding: 3px 8px;
+    border: 1px solid var(--xray); color: var(--xray);
+    font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase;
+    opacity: 0; transition: opacity .3s;
+  }
+  .mode.on { opacity: 1; }
+
+  .gauges {
+    display: grid; grid-template-columns: auto auto; column-gap: 14px; row-gap: 5px;
+    padding: 10px 12px; background: var(--panel); border: 1px solid var(--line);
+    font-size: 11px; font-variant-numeric: tabular-nums;
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  }
+  .gauges dt { color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; font-size: 10px; align-self: center; }
+  .gauges dd { margin: 0; text-align: right; min-width: 9ch; }
+  .pips { display: inline-flex; gap: 4px; vertical-align: middle; }
+  .pips i { width: 8px; height: 8px; border-radius: 50%; border: 1px solid #c9a24f; background: #c9a24f; }
+  .pips i.spent { background: transparent; border-color: #6a5a3a; }
+  .pips i.empty { background: transparent; border-color: #3a3f45; }
+
+  .bottom { display: flex; flex-direction: column; gap: 12px; }
+  .caption { max-width: 46ch; min-height: 92px; display: flex; flex-direction: column; justify-content: flex-end; }
+  .caption .step {
+    font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--flash);
+    min-height: 1.3em;
+  }
+  .caption .step.x { color: var(--xray); }
+  .caption .text {
+    margin: 4px 0 0;
+    font-family: var(--display); font-weight: 600;
+    font-size: clamp(19px, 2.4vw, 27px); line-height: 1.12; text-wrap: balance;
+    text-shadow: 0 1px 12px rgba(0,0,0,.6);
+  }
+  .caption > * { transition: opacity .25s; }
+  .caption.swap > * { opacity: 0; }
+
+  .transport {
+    pointer-events: auto;
+    display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px;
+    padding: 8px 10px; background: var(--panel); border: 1px solid var(--line);
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  }
+  .transport button {
+    font: 500 11px/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--fg); background: transparent; border: 1px solid var(--line);
+    padding: 8px 10px; min-height: 32px; cursor: pointer; white-space: nowrap;
+  }
+  .transport button:hover { border-color: var(--muted); }
+  .transport button:focus-visible, .scrub input:focus-visible { outline: 2px solid var(--xray); outline-offset: 2px; }
+  .transport button[aria-pressed="true"] { border-color: var(--xray); color: var(--xray); }
+  #play { width: 40px; padding: 0; display: grid; place-items: center; }
+  #play svg { width: 12px; height: 12px; fill: currentColor; }
+  .scrub { flex: 1 1 220px; min-width: 0; position: relative; height: 32px; display: flex; align-items: center; }
+  .scrub input { width: 100%; margin: 0; appearance: none; -webkit-appearance: none; background: transparent; height: 32px; position: relative; z-index: 1; cursor: pointer; }
+  .scrub input::-webkit-slider-runnable-track { height: 2px; background: transparent; }
+  .scrub input::-moz-range-track { height: 2px; background: transparent; }
+  .scrub input::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 12px; margin-top: -5px; border-radius: 50%; background: var(--fg); border: 0; }
+  .scrub input::-moz-range-thumb { width: 12px; height: 12px; border-radius: 50%; background: var(--fg); border: 0; }
+  .track { position: absolute; left: 6px; right: 6px; top: 15px; height: 2px; background: var(--line); }
+  .track .fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--muted); }
+  .track .seg { position: absolute; top: -3px; height: 8px; border-left: 1px solid var(--muted); }
+  .track .seg.x { background: rgba(116, 212, 255, 0.18); border-left-color: var(--xray); }
+  .time { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 9ch; text-align: right; }
+  .hint { font-size: 10px; color: var(--muted); letter-spacing: 0.08em; }
+
+  /* Shorts recording layout (9:16): keeps text clear of the YouTube Shorts overlay at the bottom and right edge */
+  body.video .transport { display: none; }
+  body.video .hud { padding-top: 30px; }
+  body.video .top { flex-direction: column; gap: 0; }
+  body.video .brand h1 { font-size: 30px; }
+  body.video .brand p { display: block; font-size: 9px; }
+  body.video .mode { position: absolute; top: 34px; right: 16px; margin: 0; }
+  body.video .gauges {
+    position: absolute; left: 16px; right: 16px; top: 66%;
+    grid-template-columns: none; grid-template-rows: auto auto; grid-auto-flow: column;
+    column-gap: 8px; row-gap: 3px; padding: 8px 10px; font-size: 10px;
+  }
+  body.video .gauges dt { font-size: 8px; }
+  body.video .gauges dd { text-align: left; min-width: 0; white-space: nowrap; }
+  body.video .bottom { position: absolute; top: 128px; left: 16px; right: 60px; }
+  body.video .caption { min-height: 0; justify-content: flex-start; }
+  body.video .caption .text { font-size: 19px; }
+  body.video .caption > * { transition: none; }
+
+  @media (max-width: 640px) {
+    .gauges { font-size: 10px; padding: 8px 10px; column-gap: 10px; }
+    .gauges dd { min-width: 7ch; }
+    .brand p { display: none; }
+    .caption { min-height: 76px; }
+    .hint { display: none; }
+  }
+  @media (max-width: 420px) {
+    .top { flex-direction: column; }
+  }
+</style>
+
+<div id="stage"></div>
+
+<div class="hud">
+  <div class="top">
+    <div class="brand">
+      <h1>RPG-7<br>Launcher</h1>
+      <p>40 mm tube · PG-7V grenade · 85 mm warhead</p>
+      <span class="mode" id="modeTag">X-ray view</span>
+    </div>
+    <dl class="gauges" aria-label="Live readouts">
+      <dt>Hammer</dt><dd id="gHammer">Down</dd>
+      <dt>Stage</dt><dd id="gStage">Unloaded</dd>
+      <dt>Speed</dt><dd id="gVel">0 m/s</dd>
+      <dt>Range</dt><dd id="gRange">0 m</dd>
+    </dl>
+  </div>
+
+  <div class="bottom">
+    <div class="caption" id="caption" aria-live="polite">
+      <div class="step" id="capStep"></div>
+      <p class="text" id="capText"></p>
+    </div>
+    <div class="transport">
+      <button id="play" aria-label="Pause"><svg viewBox="0 0 12 12" id="playIcon"><rect x="1" y="1" width="3.5" height="10"/><rect x="7.5" y="1" width="3.5" height="10"/></svg></button>
+      <div class="scrub">
+        <div class="track" id="track"><div class="fill" id="fill"></div></div>
+        <input type="range" id="scrub" min="0" max="1000" value="0" aria-label="Timeline">
+      </div>
+      <span class="time" id="time">0.0 s</span>
+      <button id="xray" aria-pressed="false" title="X-ray: auto, on, off">X-ray: Auto</button>
+      <button id="speed" title="Playback speed">1×</button>
+      <button id="cam" aria-pressed="false" title="Drag the scene to orbit freely">Camera: Director</button>
+      <span class="hint">Drag to orbit</span>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/GammaCorrectionShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+<script>
+(() => {
+  const T = THREE;
+  const PI = Math.PI;
+  const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+  const lerp = (a, b, k) => a + (b - a) * k;
+  const smooth = k => { k = clamp(k); return k * k * (3 - 2 * k); };
+  const easeOut = k => { k = clamp(k); return 1 - Math.pow(1 - k, 3); };
+  const easeIn = k => { k = clamp(k); return k * k * k; };
+  const span = (t, a, b) => clamp((t - a) / (b - a));
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const rand = (i, j) => { const x = Math.sin(i * 127.1 + j * 311.7) * 43758.5453; return x - Math.floor(x); };
+
+  // ---------------------------------------------------------------- renderer
+  const stage = document.getElementById('stage');
+  const renderer = new T.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.toneMapping = T.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.05;
+  stage.appendChild(renderer.domElement);
+  const scene = new T.Scene();
+  const camera = new T.PerspectiveCamera(32, 1, 0.1, 600);
+
+  {
+    const env = new T.Scene();
+    env.add(new T.Mesh(new T.BoxGeometry(60, 30, 60), new T.MeshBasicMaterial({ color: 0x050607, side: T.BackSide })));
+    const box = (w, h, x, y, z, ry, rx, c) => {
+      const m = new T.Mesh(new T.PlaneGeometry(w, h), new T.MeshBasicMaterial({ color: c, side: T.DoubleSide }));
+      m.position.set(x, y, z); m.rotation.set(rx || 0, ry || 0, 0); env.add(m);
+    };
+    box(40, 6, 0, 14, 0, 0, PI / 2, new T.Color(3.0, 3.0, 3.1));
+    box(4, 22, -24, 2, 8, PI / 2.6, 0, new T.Color(2.2, 2.3, 2.5));
+    box(4, 22, 24, 2, -6, -PI / 2.4, 0, new T.Color(1.6, 1.7, 2.0));
+    box(30, 3, 0, 4, -28, 0, 0, new T.Color(1.5, 1.2, 0.85));
+    box(30, 3, 0, -6, 28, PI, 0, new T.Color(0.7, 0.72, 0.75));
+    scene.environment = new T.PMREMGenerator(renderer).fromScene(env, 0.02).texture;
+  }
+  const key = new T.DirectionalLight(0xffffff, 1.3); key.position.set(4, 10, 8); scene.add(key);
+  const rim = new T.DirectionalLight(0xbfd8ff, 0.8); rim.position.set(-10, 4, -8); scene.add(rim);
+  scene.add(new T.AmbientLight(0x404650, 0.45));
+
+  const bgMat = new T.ShaderMaterial({
+    uniforms: { uX: { value: 0 }, uRes: { value: new T.Vector2(1, 1) } },
+    vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.9999, 1.0); }',
+    fragmentShader: `
+      varying vec2 vUv; uniform float uX; uniform vec2 uRes;
+      void main(){
+        vec2 c = vUv - vec2(0.5, 0.56); c.x *= uRes.x / uRes.y;
+        float r = length(c);
+        vec3 solid = mix(vec3(0.030, 0.031, 0.030), vec3(0.002, 0.002, 0.002), smoothstep(0.0, 0.95, r));
+        vec3 xr = mix(vec3(0.006, 0.032, 0.055), vec3(0.0, 0.004, 0.009), smoothstep(0.0, 0.95, r));
+        vec2 g = gl_FragCoord.xy / (uRes.y / 18.0);
+        vec2 f = abs(fract(g) - 0.5);
+        float line = 1.0 - smoothstep(0.0, 0.035, min(f.x, f.y));
+        xr += vec3(0.010, 0.040, 0.060) * line * (1.0 - smoothstep(0.2, 1.0, r));
+        gl_FragColor = vec4(mix(solid, xr, uX), 1.0);
+      }`,
+    depthWrite: false, depthTest: false
+  });
+  const bg = new T.Mesh(new T.PlaneGeometry(2, 2), bgMat);
+  bg.frustumCulled = false; bg.renderOrder = -10; scene.add(bg);
+
+  // ---------------------------------------------------------------- helpers
+  function autoSmooth(geo, angle) {
+    const g = geo.index ? geo.toNonIndexed() : geo;
+    const p = g.attributes.position, n = p.count, faces = n / 3;
+    const fa = new Float32Array(faces * 3), fu = new Float32Array(faces * 3);
+    const a = new T.Vector3(), b = new T.Vector3(), c = new T.Vector3();
+    for (let f = 0; f < faces; f++) {
+      a.fromBufferAttribute(p, f * 3); b.fromBufferAttribute(p, f * 3 + 1); c.fromBufferAttribute(p, f * 3 + 2);
+      b.sub(a); c.sub(a); b.cross(c);
+      fa[f * 3] = b.x; fa[f * 3 + 1] = b.y; fa[f * 3 + 2] = b.z;
+      b.normalize(); fu[f * 3] = b.x; fu[f * 3 + 1] = b.y; fu[f * 3 + 2] = b.z;
+    }
+    const groups = new Map();
+    for (let i = 0; i < n; i++) {
+      const k = Math.round(p.getX(i) * 1e4) + ',' + Math.round(p.getY(i) * 1e4) + ',' + Math.round(p.getZ(i) * 1e4);
+      let l = groups.get(k); if (!l) groups.set(k, l = []); l.push(i);
+    }
+    const cosT = Math.cos(angle * PI / 180), out = new Float32Array(n * 3);
+    groups.forEach(list => {
+      for (const i of list) {
+        const fi = (i / 3 | 0) * 3; let x = 0, y = 0, z = 0;
+        for (const j of list) {
+          const fj = (j / 3 | 0) * 3;
+          if (fu[fi] * fu[fj] + fu[fi + 1] * fu[fj + 1] + fu[fi + 2] * fu[fj + 2] >= cosT) { x += fa[fj]; y += fa[fj + 1]; z += fa[fj + 2]; }
+        }
+        const l = Math.hypot(x, y, z) || 1; out[i * 3] = x / l; out[i * 3 + 1] = y / l; out[i * 3 + 2] = z / l;
+      }
+    });
+    g.setAttribute('normal', new T.BufferAttribute(out, 3));
+    return g;
+  }
+  function extrude(shape, depth, bevel = 0.06, segs = 3, smoothAngle = 50) {
+    const g = new T.ExtrudeGeometry(shape, { depth, bevelEnabled: bevel > 0, bevelThickness: bevel, bevelSize: bevel, bevelSegments: segs, curveSegments: 20 });
+    g.translate(0, 0, -depth / 2);
+    return autoSmooth(g, smoothAngle);
+  }
+  const alongX = g => g.rotateZ(-PI / 2);
+  // Lathe from [radius, x] pairs, revolved around the x axis.
+  const lathe = (pts, seg = 48) => alongX(new T.LatheGeometry(pts.map(([r, x]) => new T.Vector2(r, x)), seg));
+
+  // ---------------------------------------------------------------- materials
+  const steel = new T.MeshStandardMaterial({ color: 0x2a2d31, metalness: 0.8, roughness: 0.45, envMapIntensity: 1.1 });
+  const steelDark = new T.MeshStandardMaterial({ color: 0x15171a, metalness: 0.85, roughness: 0.38 });
+  const woodTex = (() => {
+    const w = 256, h = 64, cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+    const x = cv.getContext('2d'); x.fillStyle = '#7a3a22'; x.fillRect(0, 0, w, h);
+    for (let i = 0; i < 90; i++) {
+      x.strokeStyle = `rgba(${40 + rand(i, 1) * 50},${15 + rand(i, 2) * 20},10,${0.25 + rand(i, 3) * 0.35})`;
+      x.lineWidth = 0.5 + rand(i, 4) * 2.2;
+      const y0 = rand(i, 5) * w; x.beginPath(); x.moveTo(y0, 0);
+      x.bezierCurveTo(y0 + (rand(i, 6) - 0.5) * 20, h * 0.3, y0 + (rand(i, 7) - 0.5) * 20, h * 0.7, y0 + (rand(i, 8) - 0.5) * 10, h); x.stroke();
+    }
+    const t = new T.CanvasTexture(cv); t.wrapS = t.wrapT = T.RepeatWrapping; t.encoding = T.sRGBEncoding; return t;
+  })();
+  const wood = new T.MeshStandardMaterial({ color: 0xffffff, map: woodTex, metalness: 0.0, roughness: 0.5, envMapIntensity: 0.7 });
+  const gripWood = new T.MeshStandardMaterial({ color: 0x8a5a48, map: woodTex, metalness: 0, roughness: 0.6, envMapIntensity: 0.5 });
+  const olive = new T.MeshStandardMaterial({ color: 0x353c1f, metalness: 0.1, roughness: 0.62, envMapIntensity: 0.6, emissive: 0x000000 });
+  const silver = new T.MeshStandardMaterial({ color: 0xb8bec5, metalness: 1.0, roughness: 0.32 });
+  const paper = new T.MeshStandardMaterial({ color: 0xc4ad80, metalness: 0, roughness: 0.9, emissive: 0x000000 });
+  const copper = new T.MeshStandardMaterial({ color: 0xc8794a, metalness: 1, roughness: 0.3, emissive: 0x000000 });
+  const fill = new T.MeshStandardMaterial({ color: 0x6f6545, metalness: 0, roughness: 0.8, emissive: 0x000000 });
+  const powder = new T.MeshStandardMaterial({ color: 0x3a3830, metalness: 0, roughness: 0.9, emissive: 0x000000 });
+  const plateMat = new T.MeshStandardMaterial({ color: 0x55595e, metalness: 0.7, roughness: 0.55 });
+  const holeMat = new T.MeshBasicMaterial({ color: 0x020202 });
+
+  const xrayMats = [];
+  function xray(color, fillA = 0.04, power = 2.0) {
+    const m = new T.ShaderMaterial({
+      uniforms: { uColor: { value: new T.Color(color) }, uOpacity: { value: 0 }, uFill: { value: fillA }, uPow: { value: power } },
+      vertexShader: 'varying vec3 vN; varying vec3 vV; void main(){ vec4 mv = modelViewMatrix * vec4(position, 1.0); vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz); gl_Position = projectionMatrix * mv; }',
+      fragmentShader: 'varying vec3 vN; varying vec3 vV; uniform vec3 uColor; uniform float uOpacity; uniform float uFill; uniform float uPow; void main(){ float f = pow(1.0 - abs(dot(normalize(vN), normalize(vV))), uPow); gl_FragColor = vec4(uColor, (f * 0.6 + uFill) * uOpacity * 0.6); }',
+      transparent: true, depthWrite: false, blending: T.AdditiveBlending, side: T.DoubleSide
+    });
+    xrayMats.push(m); return m;
+  }
+  const xShell = xray(0x5cc8ff, 0.03, 2.2);
+  const xWood = xray(0x3b8fd0, 0.02, 2.0);
+  const xGren = xray(0x9fe0c0, 0.03, 2.0);
+  const xInner = xray(0xd8f3ff, 0.06, 1.6);
+  const xSpring = xray(0xffd27a, 0.35, 1.2);
+
+  const shells = [], internals = [];
+  const fadeMats = [steel, steelDark, wood, gripWood, olive, silver, paper, plateMat];
+  function part(geo, mat, xmat, parent) {
+    const g = new T.Group();
+    const solid = new T.Mesh(geo, mat), ghost = new T.Mesh(geo, xmat);
+    ghost.renderOrder = 5; g.add(solid); g.add(ghost); parent.add(g);
+    shells.push({ solid, ghost }); return g;
+  }
+  function ghostOnly(geo, xmat, parent) {
+    const m = new T.Mesh(geo, xmat); m.renderOrder = 6; parent.add(m); internals.push(m); return m;
+  }
+
+  // ---------------------------------------------------------------- launcher (model space: bore on the x axis, muzzle at +x)
+  const MUZZLE_X = 9.5, REAR_X = -9.5;
+  const launcher = new T.Group(); scene.add(launcher);
+  {
+    // tube with flared rear venturi, hollow so the grenade and gas show in x-ray
+    const outer = [[1.05, -9.5], [1.12, -9.2], [1.0, -8.5], [0.72, -7.7], [0.55, -7.1], [0.5, -6.6], [0.45, -6.2], [0.45, 9.25], [0.5, 9.3], [0.5, 9.5]];
+    const inner = [[0.4, 9.5], [0.4, -6.4], [0.46, -7.2], [0.65, -7.9], [0.92, -8.6], [0.98, -9.5]];
+    part(autoSmooth(lathe(outer.concat(inner).concat([[1.05, -9.5]]), 56), 50), steel, xShell, launcher);
+    // wooden heat guard with steel bands
+    const guard = lathe([[0.46, -6.0], [0.6, -5.95], [0.64, -5.7], [0.64, 2.5], [0.6, 2.75], [0.46, 2.8], [0.46, -6.0]], 48);
+    part(guard, wood, xWood, launcher);
+    [-6.05, -2.2, 2.85].forEach(x => {
+      const b = lathe([[0.62, x - 0.12], [0.67, x - 0.1], [0.67, x + 0.1], [0.62, x + 0.12], [0.62, x - 0.12]], 40);
+      part(b, steelDark, xShell, launcher);
+    });
+    // trigger housing under the tube
+    const hs = new T.Shape();
+    hs.moveTo(3.9, -0.35); hs.lineTo(6.8, -0.35); hs.lineTo(6.8, -0.9); hs.quadraticCurveTo(6.7, -1.25, 6.3, -1.25); hs.lineTo(4.3, -1.25); hs.quadraticCurveTo(3.9, -1.2, 3.9, -0.9); hs.lineTo(3.9, -0.35);
+    part(extrude(hs, 0.5, 0.06, 3), steel, xShell, launcher);
+    // pistol grip with trigger guard
+    const gs = new T.Shape();
+    gs.moveTo(5.6, -1.15); gs.lineTo(6.5, -1.15); gs.quadraticCurveTo(6.4, -2.3, 6.15, -3.3);
+    gs.quadraticCurveTo(5.75, -3.5, 5.3, -3.3); gs.quadraticCurveTo(5.55, -2.3, 5.6, -1.15);
+    part(extrude(gs, 0.55, 0.12, 4, 70), gripWood, xWood, launcher);
+    const tg = new T.Shape();
+    tg.moveTo(4.2, -1.2); tg.quadraticCurveTo(4.2, -2.15, 5.0, -2.2); tg.lineTo(5.7, -2.2); tg.lineTo(5.7, -2.05); tg.lineTo(5.0, -2.05); tg.quadraticCurveTo(4.38, -2.0, 4.38, -1.2); tg.lineTo(4.2, -1.2);
+    part(extrude(tg, 0.25, 0.03, 2), steelDark, xShell, launcher);
+    // front wooden grip
+    const fg = new T.Shape();
+    fg.moveTo(-1.2, -0.55); fg.lineTo(-0.1, -0.55); fg.quadraticCurveTo(-0.15, -1.8, -0.3, -2.8);
+    fg.quadraticCurveTo(-0.7, -3.0, -1.1, -2.8); fg.quadraticCurveTo(-1.15, -1.8, -1.2, -0.55);
+    part(extrude(fg, 0.55, 0.12, 4, 70), gripWood, xWood, launcher);
+    // sights and optic bracket
+    const fs = new T.Shape(); fs.moveTo(8.4, 0.4); fs.lineTo(8.9, 0.4); fs.lineTo(8.8, 1.15); fs.lineTo(8.6, 1.15); fs.lineTo(8.4, 0.4);
+    part(extrude(fs, 0.12, 0.02, 1), steelDark, xShell, launcher);
+    const rs = new T.Shape(); rs.moveTo(3.2, 0.4); rs.lineTo(4.1, 0.4); rs.lineTo(3.95, 1.0); rs.lineTo(3.35, 1.0); rs.lineTo(3.2, 0.4);
+    part(extrude(rs, 0.3, 0.03, 2), steelDark, xShell, launcher);
+    const br = new T.BoxGeometry(2.4, 0.5, 0.3); br.translate(4.6, 0.1, -0.6);
+    part(br, steelDark, xShell, launcher);
+  }
+
+  // Firing mechanism: hammer (pivot in the housing), firing pin under the bore, trigger, sear, mainspring.
+  const HAMMER_PIVOT = new T.Vector2(4.75, -0.95);
+  const hammer = new T.Group(); hammer.position.set(HAMMER_PIVOT.x, HAMMER_PIVOT.y, 0); launcher.add(hammer);
+  {
+    const s = new T.Shape();
+    s.moveTo(-0.15, -0.15); s.lineTo(0.75, 0.12); s.lineTo(0.85, 0.32); s.lineTo(0.6, 0.38); s.lineTo(-0.1, 0.15);
+    s.lineTo(-0.85, -0.05); s.quadraticCurveTo(-1.05, -0.2, -0.85, -0.3); s.lineTo(-0.15, -0.15);
+    part(extrude(s, 0.2, 0.03, 2), steelDark, xInner, hammer);
+  }
+  const PIN_X = 5.5;
+  const firingPin = new T.Mesh(new T.CylinderGeometry(0.05, 0.07, 0.42, 12), steelDark);
+  firingPin.position.set(PIN_X, -0.6, 0); launcher.add(firingPin);
+  ghostOnly(firingPin.geometry, xInner, firingPin);
+  const TRIGGER_PIVOT = new T.Vector2(5.0, -1.2);
+  const trigger = new T.Group(); trigger.position.set(TRIGGER_PIVOT.x, TRIGGER_PIVOT.y, 0); launcher.add(trigger);
+  {
+    const s = new T.Shape();
+    s.moveTo(-0.1, 0.1); s.lineTo(0.15, 0.1); s.quadraticCurveTo(0.2, -0.4, 0.0, -0.8); s.quadraticCurveTo(-0.15, -0.85, -0.12, -0.7); s.quadraticCurveTo(0.0, -0.4, -0.1, 0.1);
+    part(extrude(s, 0.18, 0.03, 2), steelDark, xInner, trigger);
+  }
+  const sear = ghostOnly(new T.BoxGeometry(0.35, 0.12, 0.16), xInner, launcher);
+  const springGeo = (() => {
+    const pts = [], turns = 9;
+    for (let i = 0; i <= turns * 24; i++) { const a = i / 24 * 2 * PI; pts.push(new T.Vector3(i / (turns * 24), Math.cos(a) * 0.1, Math.sin(a) * 0.1)); }
+    return new T.TubeGeometry(new T.CatmullRomCurve3(pts), turns * 24, 0.022, 5);
+  })();
+  const spring = ghostOnly(springGeo, xSpring, launcher);
+  const SPRING_ANCHOR = new T.Vector3(6.6, -1.05, 0);
+
+  // ---------------------------------------------------------------- grenade (model coords at the loaded position; moved by gren.position.x)
+  const gren = new T.Group(); scene.add(gren);
+  const spinner = new T.Group(); gren.add(spinner);
+  const G = {};
+  {
+    // tail cap + stabilizer tube
+    part(lathe([[0, 2.95], [0.2, 2.95], [0.22, 3.05], [0.22, 3.25], [0.17, 3.3], [0, 3.3]], 24), silver, xGren, spinner);
+    part(lathe([[0.17, 3.25], [0.17, 6.65], [0, 6.65]], 24), silver, xGren, spinner);
+    // folding fins (hinged near the tail)
+    G.fins = [];
+    const finGeo = new T.BoxGeometry(2.0, 0.03, 0.34); finGeo.translate(1.0, 0, 0);
+    for (let k = 0; k < 4; k++) {
+      const arm = new T.Group(); arm.rotation.x = k * PI / 2 + PI / 4; spinner.add(arm);
+      const hinge = new T.Group(); hinge.position.set(3.45, 0.2, 0); arm.add(hinge);
+      part(finGeo, silver, xGren, hinge);
+      G.fins.push(hinge);
+    }
+    // booster charge (paper case) with powder inside and its side primer
+    G.booster = new T.Group(); spinner.add(G.booster);
+    const bc = lathe([[0.2, 3.35], [0.38, 3.35], [0.38, 6.55], [0.2, 6.55], [0.2, 3.35]], 32);
+    G.boosterCase = part(bc, paper, xGren, G.booster);
+    G.boosterPowder = new T.Mesh(lathe([[0.22, 3.45], [0.34, 3.45], [0.34, 6.45], [0.22, 6.45], [0.22, 3.45]], 24), powder);
+    G.booster.add(G.boosterPowder);
+    G.primer = new T.Mesh(new T.CylinderGeometry(0.09, 0.09, 0.06, 14), silver);
+    G.primer.position.set(PIN_X, -0.38, 0); G.booster.add(G.primer);
+    // rocket motor with propellant grain
+    part(lathe([[0.17, 6.6], [0.38, 6.6], [0.38, 9.0], [0.3, 9.0]], 40), olive, xGren, spinner);
+    [6.9, 8.6].forEach(x => part(lathe([[0.38, x - 0.06], [0.4, x - 0.05], [0.4, x + 0.05], [0.38, x + 0.06]], 32), olive, xGren, spinner));
+    G.grain = new T.Mesh(lathe([[0.1, 6.75], [0.31, 6.75], [0.31, 8.9], [0.1, 8.9], [0.1, 6.75]], 24), powder.clone()); spinner.add(G.grain);
+    // nozzle ring: six nozzles angled back and out
+    part(lathe([[0.3, 9.0], [0.45, 9.05], [0.45, 9.45], [0.42, 9.5]], 40), olive, xGren, spinner);
+    G.nozzles = [];
+    const nz = new T.CylinderGeometry(0.06, 0.1, 0.25, 12); nz.translate(0, -0.12, 0);
+    for (let k = 0; k < 6; k++) {
+      const arm = new T.Group(); arm.rotation.x = k * PI / 3; spinner.add(arm);
+      const n = new T.Group(); n.position.set(9.15, 0.44, 0); n.rotation.z = -PI / 2 - 0.5; arm.add(n);
+      const m = new T.Mesh(nz, steelDark); m.rotation.z = PI; n.add(m);
+      G.nozzles.push(n);
+    }
+    // warhead body: rear taper + long forward cone + piezo nose fuze
+    part(autoSmooth(lathe([[0.42, 9.5], [0.62, 10.0], [0.86, 10.9], [0.93, 11.6], [0.9, 12.3], [0.72, 13.6], [0.48, 14.8], [0.24, 15.8], [0.13, 16.05]], 56), 60), olive, xGren, spinner);
+    G.fuze = new T.Group(); G.fuze.position.x = 16.0; spinner.add(G.fuze);
+    part(lathe([[0.13, 0.0], [0.11, 0.2], [0.09, 0.32], [0.05, 0.4], [0, 0.42]], 24), silver, xGren, G.fuze);
+    // internals: shaped charge (explosive fill + copper liner), detonator, wire from the nose
+    G.fill = new T.Mesh(lathe([[0.0, 9.95], [0.6, 9.95], [0.86, 11.0], [0.9, 11.9], [0.8, 12.0], [0.0, 10.75]], 40), fill); spinner.add(G.fill);
+    G.liner = new T.Mesh(lathe([[0.0, 10.68], [0.8, 11.98], [0.8, 12.05], [0.0, 10.78]], 40), copper); spinner.add(G.liner);
+    G.det = new T.Mesh(alongX(new T.CylinderGeometry(0.12, 0.12, 0.2, 14)).translate(9.88, 0, 0), copper); spinner.add(G.det);
+    const wirePts = [[16.0, 0.08], [13.6, 0.66], [12.1, 0.84], [11.0, 0.8], [10.1, 0.55], [9.9, 0.1]].map(([x, y]) => new T.Vector3(x, y, 0));
+    G.wireCurve = new T.CatmullRomCurve3(wirePts);
+    G.wire = new T.Mesh(new T.TubeGeometry(G.wireCurve, 60, 0.025, 6), copper); spinner.add(G.wire);
+  }
+  const NOSE_X = 16.42, L_IN = 6.85, HOVER = 12;
+
+  // ---------------------------------------------------------------- target plate
+  const PLATE_X = 75;
+  const plate = new T.Group(); plate.position.set(PLATE_X, -0.6, 0); scene.add(plate);
+  {
+    const pg = new T.BoxGeometry(1.2, 9, 9); pg.translate(0.6, 0, 0); part(pg, plateMat, xShell, plate);
+    const post = new T.Mesh(new T.BoxGeometry(0.6, 6, 0.6), steelDark); post.position.set(1.6, -6, 0); plate.add(post);
+  }
+  const holeFront = new T.Mesh(new T.CircleGeometry(0.35, 24), holeMat); holeFront.rotation.y = -PI / 2; holeFront.position.set(-0.01, 0.6, 0); plate.add(holeFront);
+  const holeBack = holeFront.clone(); holeBack.rotation.y = PI / 2; holeBack.position.x = 1.21; plate.add(holeBack);
+  const glowRingMat = new T.MeshBasicMaterial({ color: new T.Color(3, 1.2, 0.3), transparent: true, blending: T.AdditiveBlending, depthWrite: false, toneMapped: false });
+  const glowRing = new T.Mesh(new T.RingGeometry(0.35, 0.75, 32), glowRingMat); glowRing.rotation.y = -PI / 2; glowRing.position.set(-0.02, 0.6, 0); plate.add(glowRing);
+  const glowRingB = glowRing.clone(); glowRingB.rotation.y = PI / 2; glowRingB.position.x = 1.22; plate.add(glowRingB);
+
+  // ---------------------------------------------------------------- effects
+  const radial = stops => {
+    const s = 128, cv = document.createElement('canvas'); cv.width = cv.height = s;
+    const x = cv.getContext('2d'), gr = x.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
+    stops.forEach(([o, c]) => gr.addColorStop(o, c)); x.fillStyle = gr; x.fillRect(0, 0, s, s);
+    return new T.CanvasTexture(cv);
+  };
+  const flareTex = radial([[0, 'rgba(255,255,255,1)'], [0.25, 'rgba(255,220,150,0.9)'], [0.55, 'rgba(255,140,40,0.35)'], [1, 'rgba(255,90,0,0)']]);
+  const smokeTex = radial([[0, 'rgba(255,255,255,0.9)'], [0.5, 'rgba(255,255,255,0.35)'], [1, 'rgba(255,255,255,0)']]);
+  const addMat = color => new T.MeshBasicMaterial({ map: flareTex, color, transparent: true, blending: T.AdditiveBlending, depthWrite: false, side: T.DoubleSide, toneMapped: false });
+  const sprite = color => new T.Sprite(new T.SpriteMaterial({ map: flareTex, color, blending: T.AdditiveBlending, depthWrite: false, transparent: true, toneMapped: false }));
+  const petalGeo = new T.PlaneGeometry(1, 1); petalGeo.translate(0.5, 0, 0);
+
+  // backblast out of the venturi
+  const blast = new T.Group(); blast.position.set(REAR_X - 0.1, 0, 0); blast.rotation.y = PI; launcher.add(blast);
+  const blastMat = addMat(new T.Color(2.6, 1.5, 0.6));
+  const blastCore = sprite(new T.Color(3, 2.3, 1.5)); blast.add(blastCore);
+  const blastPetals = [];
+  for (let i = 0; i < 5; i++) { const m = new T.Mesh(petalGeo, blastMat); m.rotation.x = i * PI / 5; blast.add(m); blastPetals.push(m); }
+  const blastLight = new T.PointLight(0xffa040, 0, 40, 2); blast.add(blastLight);
+  // muzzle puff as the grenade leaves
+  const muzzleFlash = sprite(new T.Color(2.5, 1.8, 1.1)); muzzleFlash.position.set(MUZZLE_X + 0.3, 0, 0); launcher.add(muzzleFlash);
+  // booster gas inside the tube
+  const gasGeo = alongX(new T.CylinderGeometry(0.36, 0.36, 1, 16, 1, true)); gasGeo.translate(0.5, 0, 0);
+  const gas = new T.Mesh(gasGeo, new T.MeshBasicMaterial({ color: new T.Color(2.2, 1.0, 0.3), transparent: true, blending: T.AdditiveBlending, depthWrite: false, toneMapped: false }));
+  launcher.add(gas);
+  const primerFlash = sprite(new T.Color(2.5, 2.0, 1.4)); primerFlash.position.set(PIN_X, -0.38, 0); launcher.add(primerFlash);
+  // rocket motor jets (in the grenade, behind the warhead)
+  const jetMat = addMat(new T.Color(2.8, 1.7, 0.8));
+  const jets = G.nozzles.map(n => { const m = new T.Mesh(petalGeo, jetMat); m.rotation.z = PI / 2; m.position.y = -0.2; const g = new T.Group(); g.add(m); n.add(g); return m; });
+  const motorLight = new T.PointLight(0xffa040, 0, 20, 2); motorLight.position.set(8.6, 0, 0); gren.add(motorLight);
+  // impact: fuze spark, detonation flash, the jet, spall sparks
+  const fuzeSpark = sprite(new T.Color(1.4, 2.4, 3.0)); spinner.add(fuzeSpark);
+  const detGlow = sprite(new T.Color(3, 2.6, 2.0)); scene.add(detGlow);
+  const jetBeam = new T.Mesh(alongX(new T.CylinderGeometry(0.07, 0.04, 1, 12)).translate(0.5, 0, 0), new T.MeshBasicMaterial({ color: new T.Color(3.2, 2.4, 1.6), transparent: true, blending: T.AdditiveBlending, depthWrite: false, toneMapped: false }));
+  scene.add(jetBeam);
+  const impactFlash = sprite(new T.Color(3, 2.2, 1.3)); scene.add(impactFlash);
+  const impactLight = new T.PointLight(0xffb060, 0, 60, 2); scene.add(impactLight);
+  const sparks = Array.from({ length: 28 }, () => { const s = sprite(new T.Color(3, 1.8, 0.7)); scene.add(s); return s; });
+  const smokeMat = () => new T.SpriteMaterial({ map: smokeTex, color: 0x8f9499, transparent: true, depthWrite: false, opacity: 0 });
+  const smokePool = Array.from({ length: 120 }, () => { const s = new T.Sprite(smokeMat()); s.visible = false; scene.add(s); return s; });
+
+  // ---------------------------------------------------------------- timeline
+  // A flight: booster push inside the tube (Te), coast (Tc), motor burn to the plate (Tm), then the warhead sequence (scaled by S).
+  const flight = (fire, Te, Tc, Tm, S) => {
+    const v1 = 2 * L_IN / Te, xB = L_IN + v1 * Tc, D = (PLATE_X - NOSE_X) - xB, a = 2 * (D - v1 * Tm) / (Tm * Tm);
+    return { fire, Te, Tc, Tm, S, v1, xB, a, exit: fire + Te, ign: fire + Te + Tc, imp: fire + Te + Tc + Tm };
+  };
+  const FL = [flight(12.0, 2.4, 2.4, 4.6, 1.0), flight(27.0, 0.15, 0.15, 0.3, 0.12)];
+  const LOOP = 34;
+  const XRAY = [[7.6, 8.6, 23.9, 24.6]];
+  const COCK = [[6.3, 6.9], [25.6, 26.0]];
+  const PULL = [[9.6, 11.5], [26.6, 26.95]];
+  const LOAD = [[3.5, 6.0, HOVER, 0], [24.2, 25.4, 60, 0], [31.0, 34.0, 60, HOVER]];
+
+  const CAPTIONS = [
+    [0, 3.5, '', 'The RPG-7: a reusable launch tube that fires a two-stage rocket grenade.'],
+    [3.5, 6.0, '01 · Load', 'The grenade slides into the muzzle. Its booster charge sits inside the tube, right over the firing pin.'],
+    [6.0, 7.6, '02 · Cock', 'The hammer is pulled back and caught by the sear.'],
+    [7.6, 9.6, 'X-ray', 'Same launch in slow motion, with the steel made see-through.', 'x'],
+    [9.6, 11.5, '03 · Trigger', 'The trigger trips the sear. The mainspring snaps the hammer up.', 'x'],
+    [11.5, 12.3, '04 · Firing pin', 'The hammer drives the firing pin into the booster primer.', 'x'],
+    [12.3, 14.4, '05 · Booster', 'The booster burns and kicks the grenade out at about 115 m/s. Its gas blasts out the back, so the tube barely recoils.', 'x'],
+    [14.4, 16.8, '06 · Fins open', 'Clear of the muzzle, the folded fins spring open to keep the grenade flying straight.', 'x'],
+    [16.8, 19.4, '07 · Rocket motor', 'About 11 m out, a delay lights the rocket motor. It speeds the grenade up to roughly 295 m/s.', 'x'],
+    [19.4, 21.4, '08 · Warhead', 'In the nose: a piezo fuze and a hollow cone for standoff. Behind it, a shaped charge with a copper liner.', 'x'],
+    [21.4, 24.0, '09 · Impact', 'The crushed fuze sends a pulse to the detonator. The blast folds the copper liner into a thin jet that punches through steel.', 'x'],
+    [24.0, 26.4, 'Reload', 'Slide in a fresh grenade and cock the hammer. The tube is used again.'],
+    [26.4, 29.6, 'Real time', 'At full speed, launch to impact is over in a blink.'],
+    [29.6, 34, '', 'Booster, fins, rocket, shaped charge. Four stages in one shot.'],
+  ];
+
+  const followGren = time => { const x = grenX(time) + 12; return [clamp(x, 10, PLATE_X - 3), 0, 0]; };
+  const CAM = [
+    { t: 0, tg: [7, -0.8, 0], az: -0.6, el: 0.25, d: 40 },
+    { t: 3.4, tg: [8, -0.8, 0], az: 0.05, el: 0.08, d: 36 },
+    { t: 6.0, tg: [5.0, -1.3, 0], az: 0.4, el: 0.12, d: 13 },
+    { t: 8.4, tg: [5.2, -0.9, 0], az: 0.28, el: 0.12, d: 11 },
+    { t: 11.6, tg: [5.4, -0.6, 0], az: 0.2, el: 0.1, d: 8.5 },
+    { t: 12.6, tg: [2, -0.5, 0], az: 0.45, el: 0.2, d: 30 },
+    { t: 14.2, tg: followGren, az: 0.65, el: 0.15, d: 22 },
+    { t: 16.8, tg: followGren, az: 0.95, el: 0.1, d: 20 },
+    { t: 19.4, tg: followGren, az: 0.25, el: 0.08, d: 16 },
+    { t: 21.2, tg: [PLATE_X - 2, 0, 0], az: 0.25, el: 0.1, d: 17 },
+    { t: 23.6, tg: [PLATE_X + 2, -0.3, 0], az: 0.75, el: 0.15, d: 19 },
+    { t: 24.3, tg: [8, -0.8, 0], az: 0.35, el: 0.12, d: 34 },
+    { t: 26.2, tg: [14, 0, 0], az: -1.2, el: 0.12, d: 34 },
+    { t: 27.0, tg: [16, 0, 0], az: -1.2, el: 0.12, d: 34 },
+    { t: 28.2, tg: [45, 0, 0], az: -0.9, el: 0.12, d: 62 },
+    { t: 29.8, tg: [8, -0.8, 0], az: 0.7, el: 0.2, d: 40 },
+    { t: 31.2, tg: [8, -0.8, 0], az: 0.1, el: 0.22, d: 40 },
+    { t: LOOP, tg: [7, -0.8, 0], az: -0.6, el: 0.25, d: 40 },
+  ];
+
+  // ---------------------------------------------------------------- state functions
+  function flightState(F, t) {
+    const tau = t - F.fire;
+    if (tau < 0) return null;
+    let x, v, stage, range;
+    if (tau < F.Te) { const k = tau / F.Te; x = L_IN * k * k; v = 117 * k; stage = 'Booster'; range = 0; }
+    else if (tau < F.Te + F.Tc) { const s = tau - F.Te; x = L_IN + F.v1 * s; v = 117; stage = 'Coasting'; range = 11 * (x - L_IN) / (F.xB - L_IN); }
+    else {
+      const s = Math.min(tau - F.Te - F.Tc, F.Tm); x = F.xB + F.v1 * s + 0.5 * F.a * s * s;
+      v = 117 + 178 * smooth(s / (F.Tm * 0.8)); stage = 'Rocket motor';
+      range = 11 + 49 * (x - F.xB) / ((PLATE_X - NOSE_X) - F.xB);
+    }
+    if (t >= F.imp) { stage = 'Impact'; v = 0; range = 60; }
+    return { tau, x, v, stage, range };
+  }
+  function grenX(t) {
+    for (const [a, b, from, to] of LOAD) if (t >= a && t < b) return lerp(from, to, smooth(span(t, a, b)));
+    for (const F of FL) { const s = flightState(F, t); if (s && t < F.imp + 3 * F.S) return s.x; }
+    if (t < LOAD[0][0]) return HOVER;
+    return 0;
+  }
+  function activeFlight(t) {
+    for (const F of FL) if (t >= F.fire && t < F.imp + 3.2 * F.S) return F;
+    return null;
+  }
+  function grenVisible(t) {
+    for (const F of FL) if (t >= F.imp + 0.95 * F.S && t < F.imp + 12) {
+      const nextLoad = LOAD.find(l => l[0] > F.imp);
+      if (!nextLoad || t < nextLoad[0]) return false;
+    }
+    return true;
+  }
+  function hammerAngle(t) {
+    // 0 = down (resting on the pin), -0.85 = cocked
+    let a = 0;
+    COCK.forEach(([s, e], i) => {
+      if (t >= s) a = -0.85 * smooth(span(t, s, e));
+      const [ps, pe] = PULL[i];
+      if (t >= pe) a = -0.85 * (1 - easeIn(span(t, pe, pe + 0.12 * (i === 0 ? 3 : 1))));
+    });
+    return a;
+  }
+  function triggerAngle(t) {
+    let a = 0;
+    PULL.forEach(([s, e], i) => { if (t >= s) a = -0.3 * smooth(span(t, s, e)) * (1 - smooth(span(t, e + 1.2 * (i ? 0.3 : 1), e + 1.6 * (i ? 0.3 : 1)))); });
+    return a;
+  }
+  function xrayAuto(t) {
+    let x = 0;
+    for (const [a, b, c, d] of XRAY) x = Math.max(x, smooth(span(t, a, b)) * (1 - smooth(span(t, c, d))));
+    return x;
+  }
+
+  // ---------------------------------------------------------------- UI
+  const $ = id => document.getElementById(id);
+  const ui = { play: $('play'), playIcon: $('playIcon'), scrub: $('scrub'), time: $('time'), fill: $('fill'), xray: $('xray'), speed: $('speed'), cam: $('cam'), cap: $('caption'), capStep: $('capStep'), capText: $('capText'), modeTag: $('modeTag'), gHammer: $('gHammer'), gStage: $('gStage'), gVel: $('gVel'), gRange: $('gRange'), track: $('track') };
+  CAPTIONS.forEach(c => {
+    if (!c[2]) return;
+    const m = document.createElement('div'); m.className = 'seg' + (c[4] ? ' x' : '');
+    m.style.left = (c[0] / LOOP * 100) + '%'; m.style.width = ((c[1] - c[0]) / LOOP * 100) + '%';
+    ui.track.appendChild(m);
+  });
+  let videoMode = false;
+  let t = 0, playing = !reducedMotion, speed = 1, xMode = 'auto', camMode = 'director', xrayAmount = 0;
+  if (reducedMotion) t = 19.8;
+  const setPlayIcon = () => {
+    ui.play.setAttribute('aria-label', playing ? 'Pause' : 'Play');
+    ui.playIcon.innerHTML = playing ? '<rect x="1" y="1" width="3.5" height="10"/><rect x="7.5" y="1" width="3.5" height="10"/>' : '<path d="M2 1 L11 6 L2 11 Z"/>';
+  };
+  setPlayIcon();
+  ui.play.onclick = () => { playing = !playing; setPlayIcon(); };
+  ui.scrub.oninput = () => { t = ui.scrub.value / 1000 * LOOP; };
+  ui.xray.onclick = () => {
+    xMode = xMode === 'auto' ? 'on' : xMode === 'on' ? 'off' : 'auto';
+    ui.xray.textContent = 'X-ray: ' + xMode[0].toUpperCase() + xMode.slice(1);
+    ui.xray.setAttribute('aria-pressed', String(xMode === 'on'));
+  };
+  ui.speed.onclick = () => { speed = speed === 1 ? 0.5 : speed === 0.5 ? 0.25 : 1; ui.speed.textContent = (speed === 1 ? '1' : speed === 0.5 ? '½' : '¼') + '×'; };
+  const setCam = m => { camMode = m; ui.cam.textContent = 'Camera: ' + (m === 'free' ? 'Free' : 'Director'); ui.cam.setAttribute('aria-pressed', String(m === 'free')); };
+  ui.cam.onclick = () => setCam(camMode === 'free' ? 'director' : 'free');
+  document.addEventListener('keydown', e => {
+    if (e.target.tagName === 'INPUT' && e.code !== 'Space') return;
+    if (e.code === 'Space') { e.preventDefault(); ui.play.click(); }
+    if (e.key === 'x' || e.key === 'X') ui.xray.click();
+  });
+  const controls = new T.OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true; controls.dampingFactor = 0.08; controls.minDistance = 4; controls.maxDistance = 150;
+  controls.addEventListener('start', () => { if (camMode !== 'free') setCam('free'); });
+
+  const composer = new T.EffectComposer(renderer);
+  composer.addPass(new T.RenderPass(scene, camera));
+  const bloom = new T.UnrealBloomPass(new T.Vector2(1, 1), 0.55, 0.45, 0.78);
+  composer.addPass(bloom);
+  composer.addPass(new T.ShaderPass(T.GammaCorrectionShader));
+
+  function resize() {
+    const w = stage.clientWidth || window.innerWidth, h = stage.clientHeight || window.innerHeight;
+    renderer.setSize(w, h, false); composer.setSize(w, h);
+    camera.aspect = w / h;
+    if (videoMode) camera.setViewOffset(w, h, 0, -h * 0.07, w, h); else camera.clearViewOffset();
+    camera.updateProjectionMatrix();
+    bgMat.uniforms.uRes.value.set(w, h);
+  }
+  window.addEventListener('resize', resize); resize();
+
+  function camAt(time) {
+    let i = 0; while (i < CAM.length - 2 && CAM[i + 1].t <= time) i++;
+    const a = CAM[i], b = CAM[i + 1], k = smooth(span(time, a.t, b.t));
+    const ta = typeof a.tg === 'function' ? a.tg(time) : a.tg, tb = typeof b.tg === 'function' ? b.tg(time) : b.tg;
+    return { tg: [lerp(ta[0], tb[0], k), lerp(ta[1], tb[1], k), lerp(ta[2], tb[2], k)], az: lerp(a.az, b.az, k), el: lerp(a.el, b.el, k), d: lerp(a.d, b.d, k) };
+  }
+
+  // ---------------------------------------------------------------- per-frame update
+  const v3 = new T.Vector3();
+  let lastCap = -1;
+  function update(t, wall) {
+    const idle = reducedMotion ? 0 : 1;
+    launcher.rotation.set(Math.sin(wall * 0.5) * 0.01 * idle, Math.sin(wall * 0.37) * 0.02 * idle, 0);
+    launcher.position.y = Math.sin(wall * 0.8) * 0.05 * idle;
+
+    // firing mechanism
+    const ham = hammerAngle(t), trig = triggerAngle(t);
+    hammer.rotation.z = ham; trigger.rotation.z = trig;
+    sear.position.set(4.35, -1.12 + (trig < -0.2 ? -0.1 : 0), 0);
+    const tip = new T.Vector2(-0.95, -0.2).rotateAround(new T.Vector2(), ham).add(HAMMER_PIVOT);
+    const sdir = new T.Vector3(tip.x - SPRING_ANCHOR.x, tip.y - SPRING_ANCHOR.y, 0);
+    spring.position.copy(SPRING_ANCHOR); spring.scale.set(sdir.length(), 1, 1);
+    spring.quaternion.setFromUnitVectors(new T.Vector3(1, 0, 0), sdir.normalize());
+    let pinPush = 0;
+    PULL.forEach(([s, e], i) => { const k = (t - e) / (0.12 * (i === 0 ? 3 : 1)); if (k > 0.9 && k < 2.5) pinPush = Math.max(pinPush, 1 - Math.abs(k - 1.2) / 1.3); });
+    firingPin.position.y = -0.6 + pinPush * 0.12;
+
+    // grenade
+    const F = activeFlight(t);
+    const fs = F ? flightState(F, t) : null;
+    const gx = grenX(t);
+    gren.position.set(gx, launcher.position.y, 0);
+    gren.visible = grenVisible(t);
+    const hovering = t < LOAD[0][1] || t >= LOAD[2][0];
+    if (hovering && !videoMode) gren.position.y += Math.sin(wall * 1.2) * 0.08;
+    const inFlight = F && fs && t >= F.exit;
+    spinner.rotation.x = inFlight ? -(gx - L_IN) * 0.06 : 0;
+    const finK = F ? easeOut(span(t, F.exit, F.exit + 0.5 * Math.max(F.Te / 2.4, 0.15))) : 0;
+    G.fins.forEach(h => { h.rotation.z = finK * (PI / 2 + 0.35); });
+    const boosterGone = F && t > F.fire + F.Te * 0.9;
+    G.boosterCase.visible = !boosterGone; G.boosterPowder.visible = !boosterGone; G.primer.visible = !boosterGone;
+
+    // booster burn: primer, gas column, backblast
+    let primerI = 0, gasI = 0, blastI = 0, muzzleI = 0, motorI = 0;
+    if (F) {
+      const tau = t - F.fire, sc = F.Te / 2.4 * 3 + 0.3;
+      primerI = tau >= 0 && tau < 0.3 * sc ? Math.exp(-tau / (0.08 * sc)) : 0;
+      gasI = tau >= 0 ? (tau < F.Te ? 0.4 + 0.6 * Math.min(1, tau / (0.15 * F.Te)) : Math.exp(-(tau - F.Te) / (0.2 * sc))) : 0;
+      const bt = tau - 0.05 * F.Te;
+      blastI = bt > 0 ? (bt < F.Te ? Math.min(1, bt / (0.1 * F.Te)) : Math.exp(-(bt - F.Te) / (0.25 * sc))) : 0;
+      const mt = t - F.exit;
+      muzzleI = mt > 0 ? Math.exp(-mt / (0.15 * sc)) * 0.8 : 0;
+      motorI = t >= F.ign && t < F.imp ? Math.min(1, (t - F.ign) / (0.1 * F.Tm)) : 0;
+    }
+    G.boosterPowder.material.emissive.setRGB(2.5 * gasI, 0.9 * gasI, 0.2 * gasI);
+    primerFlash.visible = primerI > 0.01; primerFlash.scale.setScalar(0.3 + primerI * 1.4); primerFlash.material.opacity = primerI;
+    const boosterRear = gx + 3.3;
+    gas.visible = gasI > 0.02; gas.position.x = REAR_X; gas.scale.set(Math.max(0.01, Math.min(boosterRear, MUZZLE_X) - REAR_X), 1, 1); gas.material.opacity = gasI * 0.8;
+    blast.visible = blastI > 0.01;
+    blastCore.scale.setScalar(3 + blastI * 5); blastCore.material.opacity = blastI;
+    blastPetals.forEach((m, i) => m.scale.set(7 + 6 * blastI + i * 0.4, 2.2 + 2.5 * blastI, 1));
+    blastMat.opacity = blastI; blastLight.intensity = 4 * blastI;
+    muzzleFlash.visible = muzzleI > 0.01; muzzleFlash.scale.setScalar(1 + muzzleI * 2.5); muzzleFlash.material.opacity = muzzleI;
+    jets.forEach((m, i) => { m.visible = motorI > 0.01; m.scale.set((1.6 + 0.4 * Math.sin(wall * 40 + i)) * motorI, 0.45 * motorI, 1); });
+    jetMat.opacity = motorI; motorLight.intensity = 3 * motorI;
+    G.grain.material.emissive.setRGB(2.2 * motorI, 0.8 * motorI, 0.2 * motorI);
+
+    // impact sequence
+    let crush = 0, signal = -1, det = 0, jet = 0, flash = 0, spark = 0, hole = 0;
+    FL.forEach(F2 => {
+      const it = t - F2.imp, S = F2.S;
+      if (it >= 0) hole = Math.max(hole, it > 1.0 * S ? Math.exp(-(it - 1.0 * S) / 4) : 0);
+      if (it < 0 || it > 3.2 * S) return;
+      crush = Math.max(crush, smooth(it / (0.3 * S)));
+      if (it > 0.25 * S && it < 0.8 * S) signal = (it - 0.25 * S) / (0.55 * S);
+      det = Math.max(det, it > 0.75 * S ? Math.exp(-(it - 0.95 * S) / (0.35 * S)) * Math.min(1, (it - 0.75 * S) / (0.15 * S)) : 0);
+      jet = Math.max(jet, it > 0.9 * S ? Math.min(1, (it - 0.9 * S) / (0.5 * S)) * (1 - smooth((it - 2.0 * S) / (0.8 * S))) : 0);
+      flash = Math.max(flash, it > 0.9 * S ? Math.exp(-(it - 0.9 * S) / (0.5 * S)) : 0);
+      spark = it > 1.1 * S ? (it - 1.1 * S) / (1.8 * S) : 0;
+    });
+    const anyImpact = FL.some(F2 => t >= F2.imp && t < F2.imp + 3.2 * F2.S);
+    G.fuze.scale.x = anyImpact ? 1 - 0.7 * crush : 1;
+    fuzeSpark.visible = signal >= 0 && signal <= 1;
+    if (fuzeSpark.visible) { fuzeSpark.position.copy(G.wireCurve.getPoint(clamp(signal))); fuzeSpark.scale.setScalar(0.7); }
+    const detK = anyImpact ? det : 0;
+    G.fill.material.emissive.setRGB(3 * detK, 2.2 * detK, 1.2 * detK);
+    G.det.material.emissive.setRGB(detK * 3, detK * 2, detK);
+    const wx = gx + 11.5;
+    detGlow.visible = detK > 0.02; detGlow.position.set(wx, 0, 0); detGlow.scale.setScalar(3 + detK * 6); detGlow.material.opacity = detK;
+    jetBeam.visible = jet > 0.01;
+    const jetStart = gx + 10.8, jetEnd = lerp(jetStart, PLATE_X + 8, jet);
+    jetBeam.position.set(jetStart, 0, 0); jetBeam.scale.set(Math.max(0.01, jetEnd - jetStart), 1, 1); jetBeam.material.opacity = Math.min(1, jet * 2);
+    impactFlash.visible = flash > 0.01; impactFlash.position.set(PLATE_X - 0.5, 0, 0); impactFlash.scale.setScalar(4 + (1 - flash) * 10); impactFlash.material.opacity = flash;
+    impactLight.position.set(PLATE_X - 2, 0, 0); impactLight.intensity = 8 * flash;
+    sparks.forEach((s, i) => {
+      s.visible = spark > 0 && spark < 1;
+      if (!s.visible) return;
+      const a = rand(i, 1) * 2 * PI, sp = 0.4 + rand(i, 2) * 0.8, k = easeOut(spark);
+      s.position.set(PLATE_X + 1.3 + k * (6 + rand(i, 3) * 8), Math.sin(a) * sp * k * 5 - spark * spark * 3, Math.cos(a) * sp * k * 5);
+      s.scale.setScalar(0.35 * (1 - spark)); s.material.opacity = 1 - spark;
+    });
+    holeFront.visible = holeBack.visible = hole > 0 || FL.some(F2 => t >= F2.imp + F2.S);
+    glowRing.visible = glowRingB.visible = hole > 0.01;
+    glowRingMat.opacity = hole;
+
+    // smoke: backblast plume, motor trail, impact cloud (all derived from the timeline)
+    let si = 0;
+    const puff = (x, y, z, scale, op, rot) => {
+      if (si >= smokePool.length || op <= 0.002) return;
+      const s = smokePool[si++]; s.visible = true; s.position.set(x, y, z); s.scale.setScalar(scale); s.material.opacity = op; s.material.rotation = rot;
+    };
+    FL.forEach((F2, j) => {
+      const sc = Math.min(F2.Te / 0.15, 6);
+      for (let p = 0; p < 18; p++) {               // backblast
+        const birth = F2.fire + F2.Te * (0.1 + p * 0.05), life = (2.5 + rand(j, p) * 1.5) * sc * 0.6;
+        const age = (t - birth) / life; if (age <= 0 || age >= 1) continue;
+        const dist = (1 - Math.exp(-age * 4)) * (6 + p * 0.9);
+        puff(REAR_X - 0.5 - dist, (rand(j, p + 3) - 0.5) * dist * 0.5 + age * 2.5, (rand(j, p + 7) - 0.5) * dist * 0.7,
+          1.2 + age * 7 + p * 0.1, 0.34 * Math.pow(1 - age, 1.4) * Math.min(1, age * 10), rand(j, p + 11) * 6);
+      }
+      if (t > F2.ign) {                             // motor trail
+        const tEnd = Math.min(t, F2.imp), n = 34;
+        for (let p = 0; p < n; p++) {
+          const tb = F2.ign + (F2.imp - F2.ign) * p / n; if (tb > tEnd) break;
+          const life = 3.5 * Math.max(sc * 0.5, 1), age = (t - tb) / life; if (age >= 1) continue;
+          const fsb = flightState(F2, tb);
+          puff(fsb.x + 8.6 + (rand(j, p) - 0.5) * 0.4, age * 1.2 + (rand(j, p + 1) - 0.5) * 0.3, (rand(j, p + 2) - 0.5) * 0.4,
+            0.6 + age * 3.2, 0.28 * Math.pow(1 - age, 1.3), rand(j, p + 5) * 6);
+        }
+      }
+      for (let p = 0; p < 12; p++) {               // impact cloud
+        const birth = F2.imp + F2.S * (0.9 + p * 0.03), life = (3 + rand(j, p + 40)) * Math.max(F2.S, 0.6);
+        const age = (t - birth) / life; if (age <= 0 || age >= 1) continue;
+        const a = rand(j, p + 50) * 2 * PI, dist = (1 - Math.exp(-age * 4)) * (3 + p * 0.4);
+        puff(PLATE_X - 1 - Math.abs(Math.cos(a)) * dist, Math.sin(a) * dist * 0.6 + age * 3, Math.cos(a) * dist * 0.6,
+          1.5 + age * 6, 0.4 * Math.pow(1 - age, 1.5) * Math.min(1, age * 12), rand(j, p + 60) * 6);
+      }
+    });
+    for (; si < smokePool.length; si++) smokePool[si].visible = false;
+
+    // x-ray blend
+    const xr = xMode === 'on' ? 1 : xMode === 'off' ? 0 : xrayAuto(t);
+    xrayAmount += (xr - xrayAmount) * (xMode === 'auto' ? 1 : 0.15);
+    const X = xrayAmount;
+    bgMat.uniforms.uX.value = X;
+    xrayMats.forEach(mm => { mm.uniforms.uOpacity.value = X; });
+    shells.forEach(({ solid, ghost }) => { ghost.visible = X > 0.005; solid.visible = X < 0.995; });
+    fadeMats.forEach(mt => { mt.transparent = X > 0.005; mt.opacity = 1 - X; mt.depthWrite = X < 0.5; });
+    internals.forEach(mm => { mm.visible = X > 0.005; });
+    copper.emissive.setRGB(Math.max(0.5 * X, detK * 3), Math.max(0.22 * X, detK * 2), Math.max(0.08 * X, detK));
+    if (detK < 0.01) G.fill.material.emissive.setRGB(0.07 * X, 0.05 * X, 0.02 * X);
+    ui.modeTag.classList.toggle('on', X > 0.5);
+    bloom.strength = 0.55 - 0.25 * X;
+
+    // camera
+    if (camMode === 'director') {
+      const c = camAt(t), fit = Math.max(1, (videoMode ? 1.55 : 1.45) / camera.aspect);
+      const d = c.d * (c.d > 20 ? fit : Math.sqrt(fit));
+      const target = v3.set(...c.tg);
+      const shake = reducedMotion ? 0 : (blastI * 0.06 + flash * 0.15) * Math.min(1, c.d / 20);
+      camera.position.set(
+        target.x + d * Math.sin(c.az) * Math.cos(c.el) + (rand(wall, 1) - 0.5) * shake,
+        target.y + d * Math.sin(c.el) + (rand(wall, 2) - 0.5) * shake,
+        target.z + d * Math.cos(c.az) * Math.cos(c.el));
+      camera.lookAt(target);
+      controls.target.copy(target);
+    } else controls.update();
+
+    // HUD
+    ui.gHammer.textContent = ham < -0.8 ? 'Cocked' : ham < -0.05 ? 'Moving' : 'Down';
+    let stageTxt = t < LOAD[0][1] ? 'Unloaded' : 'Loaded', vel = 0, range = 0;
+    if (F && fs) { stageTxt = fs.stage; vel = fs.v; range = fs.range; }
+    else if (!gren.visible || (t >= LOAD[2][0])) stageTxt = 'Unloaded';
+    ui.gStage.textContent = stageTxt;
+    ui.gVel.textContent = vel.toFixed(0) + ' m/s';
+    ui.gRange.textContent = range.toFixed(range < 10 && range > 0 ? 1 : 0) + ' m';
+    let ci = CAPTIONS.findIndex(c => t >= c[0] && t < c[1]); if (ci < 0) ci = 0;
+    if (ci !== lastCap) {
+      lastCap = ci; const c = CAPTIONS[ci];
+      const apply = () => { ui.capStep.textContent = c[2]; ui.capStep.className = 'step' + (c[4] ? ' x' : ''); ui.capText.textContent = c[3]; ui.cap.classList.remove('swap'); };
+      if (videoMode) apply(); else { ui.cap.classList.add('swap'); setTimeout(apply, 180); }
+    }
+    ui.fill.style.width = (t / LOOP * 100) + '%';
+    if (document.activeElement !== ui.scrub) ui.scrub.value = Math.round(t / LOOP * 1000);
+    ui.time.textContent = t.toFixed(1) + ' / ' + LOOP + ' s';
+  }
+
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.min(0.05, (now - last) / 1000); last = now;
+    if (!videoMode) {
+      if (playing) t = (t + dt * speed) % LOOP;
+      update(t, now / 1000);
+      composer.render();
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+  window.__seek = (time, opts = {}) => { playing = false; setPlayIcon(); t = time; if (opts.x) xMode = opts.x; update(t, videoMode ? time : 0); composer.render(); };
+  window.__video = (dpr = 3) => {
+    videoMode = true; document.body.classList.add('video');
+    renderer.setPixelRatio(dpr); composer.setPixelRatio(dpr); resize();
+  };
+})();
+</script>
