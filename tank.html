@@ -1,0 +1,1373 @@
+<title>Abrams Drone Tank</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  /* Layout: full-bleed WebGL stage; title + gauges in the top corners, caption and transport bar along the bottom edge */
+  :root {
+    --ink: #0a0b0d;
+    --panel: rgba(14, 16, 19, 0.72);
+    --line: rgba(196, 210, 222, 0.16);
+    --fg: #e8ecef;
+    --muted: #8c959e;
+    --xray: #74d4ff;
+    --flash: #ffb24a;
+    --display: "Barlow Condensed", "Arial Narrow", "Helvetica Neue", sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+    color-scheme: dark;
+  }
+  html, body { height: 100%; }
+  body {
+    background: var(--ink);
+    color: var(--fg);
+    font-family: var(--mono);
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+  #stage { position: fixed; inset: 0; }
+  #stage canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+  #stage canvas:active { cursor: grabbing; }
+
+  .hud {
+    position: fixed; inset: 0;
+    pointer-events: none;
+    display: flex; flex-direction: column; justify-content: space-between; gap: 16px;
+    padding-block: max(16px, env(safe-area-inset-top, 0px)) max(14px, env(safe-area-inset-bottom, 0px));
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+  }
+  .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+  .brand h1 {
+    margin: 0;
+    font-family: var(--display); font-weight: 700;
+    font-size: clamp(22px, 3.2vw, 34px); line-height: 0.95;
+    letter-spacing: 0.02em; text-transform: uppercase;
+  }
+  .brand p {
+    margin: 6px 0 0; color: var(--muted);
+    font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase;
+  }
+  .mode {
+    display: inline-block; margin-top: 10px; padding: 3px 8px;
+    border: 1px solid var(--xray); color: var(--xray);
+    font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase;
+    opacity: 0; transition: opacity .3s;
+  }
+  .mode.on { opacity: 1; }
+
+  .gauges {
+    display: grid; grid-template-columns: auto auto; column-gap: 14px; row-gap: 5px;
+    padding: 10px 12px; background: var(--panel); border: 1px solid var(--line);
+    font-size: 11px; font-variant-numeric: tabular-nums;
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  }
+  .gauges dt { color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; font-size: 10px; align-self: center; }
+  .gauges dd { margin: 0; text-align: right; min-width: 9ch; }
+  .pips { display: inline-flex; gap: 4px; vertical-align: middle; }
+  .pips i { width: 8px; height: 8px; border-radius: 50%; border: 1px solid #c9a24f; background: #c9a24f; }
+  .pips i.spent { background: transparent; border-color: #6a5a3a; }
+  .pips i.empty { background: transparent; border-color: #3a3f45; }
+
+  .bottom { display: flex; flex-direction: column; gap: 12px; }
+  .caption { max-width: 46ch; min-height: 92px; display: flex; flex-direction: column; justify-content: flex-end; }
+  .caption .step {
+    font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--flash);
+    min-height: 1.3em;
+  }
+  .caption .step.x { color: var(--xray); }
+  .caption .text {
+    margin: 4px 0 0;
+    font-family: var(--display); font-weight: 600;
+    font-size: clamp(19px, 2.4vw, 27px); line-height: 1.12; text-wrap: balance;
+    text-shadow: 0 1px 12px rgba(0,0,0,.6);
+  }
+  .caption > * { transition: opacity .25s; }
+  .caption.swap > * { opacity: 0; }
+
+  .transport {
+    pointer-events: auto;
+    display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px;
+    padding: 8px 10px; background: var(--panel); border: 1px solid var(--line);
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  }
+  .transport button {
+    font: 500 11px/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--fg); background: transparent; border: 1px solid var(--line);
+    padding: 8px 10px; min-height: 32px; cursor: pointer; white-space: nowrap;
+  }
+  .transport button:hover { border-color: var(--muted); }
+  .transport button:focus-visible, .scrub input:focus-visible { outline: 2px solid var(--xray); outline-offset: 2px; }
+  .transport button[aria-pressed="true"] { border-color: var(--xray); color: var(--xray); }
+  #play { width: 40px; padding: 0; display: grid; place-items: center; }
+  #play svg { width: 12px; height: 12px; fill: currentColor; }
+  .scrub { flex: 1 1 220px; min-width: 0; position: relative; height: 32px; display: flex; align-items: center; }
+  .scrub input { width: 100%; margin: 0; appearance: none; -webkit-appearance: none; background: transparent; height: 32px; position: relative; z-index: 1; cursor: pointer; }
+  .scrub input::-webkit-slider-runnable-track { height: 2px; background: transparent; }
+  .scrub input::-moz-range-track { height: 2px; background: transparent; }
+  .scrub input::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 12px; margin-top: -5px; border-radius: 50%; background: var(--fg); border: 0; }
+  .scrub input::-moz-range-thumb { width: 12px; height: 12px; border-radius: 50%; background: var(--fg); border: 0; }
+  .track { position: absolute; left: 6px; right: 6px; top: 15px; height: 2px; background: var(--line); }
+  .track .fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--muted); }
+  .track .seg { position: absolute; top: -3px; height: 8px; border-left: 1px solid var(--muted); }
+  .track .seg.x { background: rgba(116, 212, 255, 0.18); border-left-color: var(--xray); }
+  .time { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 9ch; text-align: right; }
+  .hint { font-size: 10px; color: var(--muted); letter-spacing: 0.08em; }
+
+  /* Shorts recording layout (9:16): keeps text clear of the YouTube Shorts overlay at the bottom and right edge */
+  body.video .transport { display: none; }
+  body.video .hud { padding-top: 30px; }
+  body.video .top { flex-direction: column; gap: 0; }
+  body.video .brand h1 { font-size: 30px; }
+  body.video .brand p { display: block; font-size: 9px; }
+  body.video .mode { position: absolute; top: 34px; right: 16px; margin: 0; }
+  body.video .gauges {
+    position: absolute; left: 16px; right: 16px; top: 66%;
+    grid-template-columns: none; grid-template-rows: auto auto; grid-auto-flow: column;
+    column-gap: 8px; row-gap: 3px; padding: 8px 10px; font-size: 10px;
+  }
+  body.video .gauges dt { font-size: 8px; }
+  body.video .gauges dd { text-align: left; min-width: 0; white-space: nowrap; }
+  body.video .bottom { position: absolute; top: 128px; left: 16px; right: 60px; }
+  body.video .caption { min-height: 0; justify-content: flex-start; }
+  body.video .caption .text { font-size: 19px; }
+  body.video .caption > * { transition: none; }
+
+  @media (max-width: 640px) {
+    .gauges { font-size: 10px; padding: 8px 10px; column-gap: 10px; }
+    .gauges dd { min-width: 7ch; }
+    .brand p { display: none; }
+    .caption { min-height: 76px; }
+    .hint { display: none; }
+  }
+  @media (max-width: 420px) {
+    .top { flex-direction: column; }
+  }
+
+  [hidden] { display: none !important; }
+  .hud { z-index: 2; }
+  #callouts { position: fixed; inset: 0; pointer-events: none; z-index: 1; overflow: hidden; }
+  .callout { position: absolute; left: 0; top: 0; opacity: 0; font: 500 10.5px/1 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg); }
+  .callout .dot { position: absolute; left: -4px; top: -4px; width: 8px; height: 8px; border-radius: 50%; background: var(--flash); box-shadow: 0 0 0 3px rgba(0,0,0,0.35); }
+  .callout .line { position: absolute; left: 0; top: 0; height: 1px; background: rgba(232,236,239,0.75); transform-origin: 0 0; }
+  .callout .tag { position: absolute; left: 0; top: 0; white-space: nowrap; padding: 4px 7px; background: rgba(12,14,17,0.82); border: 1px solid var(--line); border-left: 2px solid var(--flash); }
+  .callout.x .dot { background: var(--xray); }
+  .callout.x .tag { border-left-color: var(--xray); }
+  #pip { position: fixed; top: 170px; right: max(16px, env(safe-area-inset-right, 0px)); width: min(34vw, 320px); aspect-ratio: 16 / 10; z-index: 3; pointer-events: none;
+    border: 1px solid rgba(255, 90, 80, 0.8); backdrop-filter: grayscale(1) contrast(1.3) brightness(1.7); -webkit-backdrop-filter: grayscale(1) contrast(1.3) brightness(1.7); }
+  #pip svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  #pip canvas { position: absolute; inset: 0; width: 100%; height: 100%; image-rendering: pixelated; }
+  #pip .lbl { position: absolute; left: 7px; top: 6px; font: 500 9.5px/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: #ff6a5a; text-shadow: 0 0 4px #000; }
+  #pip .lock { top: auto; bottom: 6px; }
+  .dpips { display: inline-flex; gap: 4px; align-items: center; vertical-align: middle; }
+  .dpips i { width: 8px; height: 8px; border-radius: 50%; background: #d4d9de; }
+  .dpips i.big { width: 12px; height: 12px; }
+  .dpips i.fly { background: transparent; box-shadow: inset 0 0 0 1.5px var(--xray); }
+  .dpips i.done { background: #3a3f45; }
+  body.video #pip { top: 268px; right: 16px; width: 200px; }
+  body.video .callout { font-size: 9.5px; }
+  @media (max-width: 640px) { #pip { top: 200px; width: 46vw; } }
+</style>
+
+<div id="stage"></div>
+<div id="callouts"></div>
+<div id="pip" hidden>
+  <canvas id="pipStatic" width="96" height="60" hidden></canvas>
+  <svg viewBox="0 0 160 100" preserveAspectRatio="none" aria-hidden="true">
+    <g fill="none" stroke="#ff4a3d" stroke-width="1.2">
+      <path d="M62 36 h-8 v8 M98 36 h8 v8 M62 64 h-8 v-8 M98 64 h8 v-8"/>
+      <circle cx="80" cy="50" r="9"/>
+      <path d="M80 30 v10 M80 60 v10 M60 50 h10 M90 50 h10"/>
+    </g>
+  </svg>
+  <div class="lbl" id="pipLbl">Switchblade 300 · #1 · EO</div>
+  <div class="lbl lock" id="pipLock">Target locked</div>
+</div>
+
+<div class="hud">
+  <div class="top">
+    <div class="brand">
+      <h1>Abrams<br>Drone Tank</h1>
+      <p>AbramsX-style · PERCH launcher · 4 Switchblades</p>
+      <span class="mode" id="modeTag">X-ray view</span>
+    </div>
+    <dl class="gauges" aria-label="Live readouts">
+      <dt>Stage</dt><dd id="gStage">Driving in</dd>
+      <dt>Main gun</dt><dd id="gGun">Ready</dd>
+      <dt>Drones</dt><dd><span class="dpips" id="dpips"><i></i><i></i><i></i><i class="big"></i></span></dd>
+      <dt>Drone speed</dt><dd id="gVel">0 km/h</dd>
+    </dl>
+  </div>
+
+  <div class="bottom">
+    <div class="caption" id="caption" aria-live="polite">
+      <div class="step" id="capStep"></div>
+      <p class="text" id="capText"></p>
+    </div>
+    <div class="transport">
+      <button id="play" aria-label="Pause"><svg viewBox="0 0 12 12" id="playIcon"><rect x="1" y="1" width="3.5" height="10"/><rect x="7.5" y="1" width="3.5" height="10"/></svg></button>
+      <div class="scrub">
+        <div class="track" id="track"><div class="fill" id="fill"></div></div>
+        <input type="range" id="scrub" min="0" max="1000" value="0" aria-label="Timeline">
+      </div>
+      <span class="time" id="time">0.0 s</span>
+      <button id="xray" aria-pressed="false" title="X-ray: auto, on, off">X-ray: Auto</button>
+      <button id="speed" title="Playback speed">1×</button>
+      <button id="cam" aria-pressed="false" title="Drag the scene to orbit freely">Camera: Director</button>
+      <span class="hint">Drag to orbit</span>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/GammaCorrectionShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+<script>
+(() => {
+  const T = THREE;
+  const PI = Math.PI;
+  const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+  const lerp = (a, b, k) => a + (b - a) * k;
+  const smooth = k => { k = clamp(k); return k * k * (3 - 2 * k); };
+  const easeOut = k => { k = clamp(k); return 1 - Math.pow(1 - k, 3); };
+  const easeIn = k => { k = clamp(k); return k * k * k; };
+  const span = (t, a, b) => clamp((t - a) / (b - a));
+  const pulse = (t, a, b, c, d) => smooth(span(t, a, b)) * (1 - smooth(span(t, c, d)));
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const rand = (i, j) => { const x = Math.sin(i * 127.1 + j * 311.7) * 43758.5453; return x - Math.floor(x); };
+  const V = (x, y, z) => new T.Vector3(x, y, z);
+
+  // ---------------------------------------------------------------- renderer
+  const stage = document.getElementById('stage');
+  const renderer = new T.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.toneMapping = T.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.0;
+  stage.appendChild(renderer.domElement);
+  const scene = new T.Scene();
+  const camera = new T.PerspectiveCamera(32, 1, 0.1, 4000);
+  const HORIZON = new T.Color(0.40, 0.44, 0.48), XRAY_FOG = new T.Color(0.0, 0.01, 0.02);
+  scene.fog = new T.Fog(HORIZON.clone(), 220, 2200);
+
+  {
+    const env = new T.Scene();
+    env.add(new T.Mesh(new T.BoxGeometry(60, 30, 60), new T.MeshBasicMaterial({ color: 0x15171a, side: T.BackSide })));
+    const box = (w, h, x, y, z, ry, rx, c) => { const m = new T.Mesh(new T.PlaneGeometry(w, h), new T.MeshBasicMaterial({ color: c, side: T.DoubleSide })); m.position.set(x, y, z); m.rotation.set(rx || 0, ry || 0, 0); env.add(m); };
+    box(40, 40, 0, 14.5, 0, 0, PI / 2, new T.Color(0.75, 0.8, 0.9));
+    box(4, 22, -24, 2, 8, PI / 2.6, 0, new T.Color(1.2, 1.2, 1.25));
+    box(30, 3, 0, 4, -28, 0, 0, new T.Color(0.9, 0.8, 0.65));
+    scene.environment = new T.PMREMGenerator(renderer).fromScene(env, 0.02).texture;
+  }
+  const sun = new T.DirectionalLight(0xfff0dc, 1.7); sun.position.set(-60, 90, 70); scene.add(sun);
+  scene.add(new T.HemisphereLight(0xc7d6e6, 0x5b5242, 0.45));
+
+  const bgMat = new T.ShaderMaterial({
+    uniforms: { uX: { value: 0 }, uRes: { value: new T.Vector2(1, 1) } },
+    vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.9999, 1.0); }',
+    fragmentShader: `
+      varying vec2 vUv; uniform float uX; uniform vec2 uRes;
+      void main(){
+        vec3 solid = mix(vec3(0.40, 0.44, 0.48), vec3(0.16, 0.24, 0.34), smoothstep(0.3, 1.0, vUv.y));
+        vec2 c = vUv - vec2(0.5, 0.56); c.x *= uRes.x / uRes.y; float r = length(c);
+        vec3 xr = mix(vec3(0.006, 0.032, 0.055), vec3(0.0, 0.004, 0.009), smoothstep(0.0, 0.95, r));
+        vec2 g = gl_FragCoord.xy / (uRes.y / 18.0); vec2 f = abs(fract(g) - 0.5);
+        float line = 1.0 - smoothstep(0.0, 0.035, min(f.x, f.y));
+        xr += vec3(0.010, 0.040, 0.060) * line * (1.0 - smoothstep(0.2, 1.0, r));
+        gl_FragColor = vec4(mix(solid, xr, uX), 1.0);
+      }`,
+    depthWrite: false, depthTest: false
+  });
+  const bg = new T.Mesh(new T.PlaneGeometry(2, 2), bgMat);
+  bg.frustumCulled = false; bg.renderOrder = -10; scene.add(bg);
+
+  // ---------------------------------------------------------------- geometry helpers
+  function autoSmooth(geo, angle) {
+    const g = geo.index ? geo.toNonIndexed() : geo;
+    const p = g.attributes.position, n = p.count, faces = n / 3;
+    const fa = new Float32Array(faces * 3), fu = new Float32Array(faces * 3);
+    const a = new T.Vector3(), b = new T.Vector3(), c = new T.Vector3();
+    for (let f = 0; f < faces; f++) {
+      a.fromBufferAttribute(p, f * 3); b.fromBufferAttribute(p, f * 3 + 1); c.fromBufferAttribute(p, f * 3 + 2);
+      b.sub(a); c.sub(a); b.cross(c);
+      fa[f * 3] = b.x; fa[f * 3 + 1] = b.y; fa[f * 3 + 2] = b.z;
+      b.normalize(); fu[f * 3] = b.x; fu[f * 3 + 1] = b.y; fu[f * 3 + 2] = b.z;
+    }
+    const groups = new Map();
+    for (let i = 0; i < n; i++) {
+      const k = Math.round(p.getX(i) * 1e4) + ',' + Math.round(p.getY(i) * 1e4) + ',' + Math.round(p.getZ(i) * 1e4);
+      let l = groups.get(k); if (!l) groups.set(k, l = []); l.push(i);
+    }
+    const cosT = Math.cos(angle * PI / 180), out = new Float32Array(n * 3);
+    groups.forEach(list => {
+      for (const i of list) {
+        const fi = (i / 3 | 0) * 3; let x = 0, y = 0, z = 0;
+        for (const j of list) {
+          const fj = (j / 3 | 0) * 3;
+          if (fu[fi] * fu[fj] + fu[fi + 1] * fu[fj + 1] + fu[fi + 2] * fu[fj + 2] >= cosT) { x += fa[fj]; y += fa[fj + 1]; z += fa[fj + 2]; }
+        }
+        const l = Math.hypot(x, y, z) || 1; out[i * 3] = x / l; out[i * 3 + 1] = y / l; out[i * 3 + 2] = z / l;
+      }
+    });
+    g.setAttribute('normal', new T.BufferAttribute(out, 3));
+    return g;
+  }
+  // side profile (x, y) extruded across z, centred
+  function extrudeZ(pts, depth, bevel = 0.04) {
+    const s = new T.Shape(); pts.forEach(([x, y], i) => i ? s.lineTo(x, y) : s.moveTo(x, y));
+    const g = new T.ExtrudeGeometry(s, { depth, bevelEnabled: bevel > 0, bevelThickness: bevel, bevelSize: bevel, bevelSegments: 2 });
+    g.translate(0, 0, -depth / 2); return autoSmooth(g, 40);
+  }
+  // top-view outline (x, z) extruded upward from y = 0
+  function extrudeY(pts, height, bevel = 0.05) {
+    const s = new T.Shape(); pts.forEach(([x, z], i) => i ? s.lineTo(x, -z) : s.moveTo(x, -z));
+    const g = new T.ExtrudeGeometry(s, { depth: height, bevelEnabled: bevel > 0, bevelThickness: bevel, bevelSize: bevel, bevelSegments: 2 });
+    g.rotateX(-PI / 2); g.translate(0, bevel, 0); return autoSmooth(g, 40);
+  }
+  const alongX = g => g.rotateZ(-PI / 2);
+  const lathe = (pts, seg = 32) => alongX(new T.LatheGeometry(pts.map(([r, x]) => new T.Vector2(r, x)), seg));
+  const cylX = (r, len, seg = 20, r2) => alongX(new T.CylinderGeometry(r2 === undefined ? r : r2, r, len, seg));
+  const cylZ = (r, len, seg = 24) => new T.CylinderGeometry(r, r, len, seg).rotateX(PI / 2);
+  const canvasTex = (w, h, draw) => { const cv = document.createElement('canvas'); cv.width = w; cv.height = h; draw(cv.getContext('2d'), w, h); const t = new T.CanvasTexture(cv); t.wrapS = t.wrapT = T.RepeatWrapping; return t; };
+
+  // ---------------------------------------------------------------- materials
+  const std = (color, metalness, roughness, extra = {}) => { const m = new T.MeshStandardMaterial(Object.assign({ color, metalness, roughness }, extra)); m.color.convertSRGBToLinear(); return m; };
+  const paint = std(0x8e959b, 0.35, 0.55);
+  const paintDark = std(0x41464c, 0.4, 0.6);
+  const trackMat = std(0x2b2d30, 0.55, 0.7);
+  const rubber = std(0x18191a, 0, 0.85);
+  const metal = std(0x9aa1a8, 0.85, 0.35);
+  const glass = std(0x0a0e12, 0.9, 0.08);
+  const perchMat = std(0x868d93, 0.35, 0.55);
+  const droneBody = std(0xc6cad0, 0.4, 0.45);
+  const droneWing = std(0x3a3e44, 0.3, 0.6);
+  const lampMat = new T.MeshBasicMaterial({ color: new T.Color(3, 3, 2.8), toneMapped: false });
+  // internals (stay solid in x-ray)
+  const uniform = std(0xa88f62, 0, 0.8), helmet = std(0x4b5535, 0.1, 0.6), seatMat = std(0x2e3236, 0.2, 0.7);
+  const screenMat = new T.MeshBasicMaterial({ color: new T.Color(0.35, 1.1, 1.4), toneMapped: false });
+  const roundBody = std(0x3b4a35, 0.3, 0.6), roundBase = std(0xb88a3e, 1, 0.3), roundTip = std(0xaab0b6, 0.9, 0.3);
+  const engineMat = std(0x5d6670, 0.7, 0.45), genMat = std(0x8a6f3a, 0.8, 0.4), motorMat = std(0xb06a3a, 1, 0.35);
+  const battMat = std(0x2f6f8f, 0.3, 0.5, { emissive: 0x000000 });
+  const warheadMat = std(0x8a7a3a, 0.2, 0.6), dBattMat = std(0x3c7fa0, 0.2, 0.5), boardMat = std(0x2f6a3a, 0.2, 0.6);
+  const tubeMat = std(0xb79a6a, 0.0, 0.8);   // tan launch tubes, like the reference photos
+  const capMat = std(0xe7e3da, 0.0, 0.7);
+  const groundTex = canvasTex(256, 256, (x, w, h) => {
+    x.fillStyle = '#5b5a3c'; x.fillRect(0, 0, w, h);
+    for (let i = 0; i < 2600; i++) {
+      const g = 50 + rand(i, 1) * 60;
+      x.fillStyle = `rgba(${g + 20},${g + 18},${g * 0.6},${0.25 + rand(i, 2) * 0.4})`;
+      x.fillRect(rand(i, 3) * w, rand(i, 4) * h, 1 + rand(i, 5) * 3, 1 + rand(i, 6) * 4);
+    }
+  });
+  groundTex.repeat.set(500, 500); groundTex.encoding = T.sRGBEncoding;
+  const groundMat = std(0x8c8672, 0, 0.95, { map: groundTex, envMapIntensity: 0.3 });
+  const woodMat = std(0xffffff, 0, 0.9);
+  const treeMat = std(0x2f3d24, 0, 0.9), trunkMat = std(0x4a3a2a, 0, 0.9);
+
+  const xrayMats = [];
+  function xray(color, fillA, power, tag) {
+    const m = new T.ShaderMaterial({
+      uniforms: { uColor: { value: new T.Color(color) }, uOpacity: { value: 0 }, uFill: { value: fillA }, uPow: { value: power } },
+      vertexShader: '#include <common>\n#include <morphtarget_pars_vertex>\nvarying vec3 vN; varying vec3 vV; void main(){ vec4 mv = modelViewMatrix * vec4(position, 1.0);\n#ifdef USE_INSTANCING\n mv = modelViewMatrix * instanceMatrix * vec4(position, 1.0);\n#endif\n vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz); gl_Position = projectionMatrix * mv; }',
+      fragmentShader: 'varying vec3 vN; varying vec3 vV; uniform vec3 uColor; uniform float uOpacity; uniform float uFill; uniform float uPow; void main(){ float f = pow(1.0 - abs(dot(normalize(vN), normalize(vV))), uPow); gl_FragColor = vec4(uColor, (f * 0.6 + uFill) * uOpacity * 0.6); }',
+      transparent: true, depthWrite: false, blending: T.AdditiveBlending, side: T.DoubleSide
+    });
+    m.userData.tag = tag; xrayMats.push(m); return m;
+  }
+  const xHull = xray(0x5cc8ff, 0.025, 2.2, 'hull');
+  const xTurret = xray(0x5cc8ff, 0.025, 2.2, 'turret');
+  const xRun = xray(0x5cc8ff, 0.025, 2.2, 'run');
+  const xPerch = xray(0x8ff0c8, 0.03, 2.0, 'perch');
+  const xCapsule = xray(0xff5a4a, 0.08, 1.6, 'capsule');
+  const xInner = xray(0xd8f3ff, 0.06, 1.6, 'inner');
+  const xDrone = xray(0x9fe0c0, 0.04, 1.8, 'drone');
+
+  const shells = [], internals = [];
+  const fadeMats = [paint, paintDark, trackMat, rubber, metal, glass, perchMat, droneBody, droneWing, tubeMat, capMat];
+  const envMats = [groundMat, woodMat, treeMat, trunkMat];
+  function part(geo, mat, xmat, parent, pos, rot) {
+    const g = new T.Group();
+    const solid = new T.Mesh(geo, mat), ghost = new T.Mesh(geo, xmat);
+    ghost.renderOrder = 5; g.add(solid); g.add(ghost); parent.add(g);
+    if (pos) g.position.set(...pos);
+    if (rot) g.rotation.set(...rot);
+    shells.push({ solid, ghost }); return g;
+  }
+  function ghostOnly(geo, xmat, parent, pos, rot) {
+    const m = new T.Mesh(geo, xmat); m.renderOrder = 6; parent.add(m); internals.push(m);
+    if (pos) m.position.set(...pos);
+    if (rot) m.rotation.set(...rot);
+    return m;
+  }
+  function solid(geo, mat, parent, pos, rot) {
+    const m = new T.Mesh(geo, mat); parent.add(m);
+    if (pos) m.position.set(...pos);
+    if (rot) m.rotation.set(...rot);
+    return m;
+  }
+  const box = (w, h, d) => new T.BoxGeometry(w, h, d);
+
+  // ---------------------------------------------------------------- ground, trees, contact shadows
+  const ground = new T.Mesh(new T.PlaneGeometry(4000, 4000), groundMat);
+  ground.rotation.x = -PI / 2; ground.position.set(200, 0, 0); scene.add(ground);
+  const shadowTex = canvasTex(128, 128, (x, w) => { const g = x.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2); g.addColorStop(0, 'rgba(0,0,0,0.6)'); g.addColorStop(0.6, 'rgba(0,0,0,0.35)'); g.addColorStop(1, 'rgba(0,0,0,0)'); x.fillStyle = g; x.fillRect(0, 0, w, w); });
+  const shadowMat = new T.MeshBasicMaterial({ map: shadowTex, transparent: true, depthWrite: false, fog: false });
+  const contactShadow = (w, d) => { const m = new T.Mesh(new T.PlaneGeometry(w, d), shadowMat); m.rotation.x = -PI / 2; m.position.y = 0.02; scene.add(m); return m; };
+  {
+    const N = 110, cone = new T.ConeGeometry(2.6, 8, 7).translate(0, 6, 0), trunk = new T.CylinderGeometry(0.25, 0.35, 2.4, 6).translate(0, 1.2, 0);
+    const crowns = new T.InstancedMesh(cone, treeMat, N), trunks = new T.InstancedMesh(trunk, trunkMat, N);
+    const m = new T.Matrix4(), q = new T.Quaternion(), s = new T.Vector3();
+    let n = 0;
+    for (let i = 0; n < N && i < 2000; i++) {
+      const x = -220 + rand(i, 1) * 900, z = -420 + rand(i, 2) * 840;
+      if (x > -70 && x < 480 && Math.abs(z) < 110) continue;
+      const sc = 0.7 + rand(i, 3) * 0.8;
+      m.compose(V(x, 0, z), q.setFromAxisAngle(V(0, 1, 0), rand(i, 4) * 6), s.set(sc, sc * (0.8 + rand(i, 5) * 0.5), sc));
+      crowns.setMatrixAt(n, m); trunks.setMatrixAt(n, m); n++;
+    }
+    crowns.count = trunks.count = n; scene.add(crowns); scene.add(trunks);
+  }
+
+  // ---------------------------------------------------------------- tank (model space: +x forward, +y up, +z = right side)
+  const tank = new T.Group(); scene.add(tank);
+  const tankShadow = contactShadow(10, 5.4);
+  const hull = new T.Group(); tank.add(hull);
+  // upper hull + glacis (full width over the tracks) and the narrower lower hull
+  part(extrudeZ([[4.15, 1.02], [2.35, 1.5], [-3.75, 1.5], [-4.05, 1.32], [-4.05, 1.02]], 3.6), paint, xHull, hull);
+  part(extrudeZ([[3.95, 1.06], [3.2, 0.5], [-3.55, 0.5], [-3.95, 0.95], [-3.95, 1.06]], 2.3), paintDark, xHull, hull);
+  // front fender flaps, headlights, hatches, 360° cameras, rear deck grilles, turret ring
+  [1, -1].forEach(s => {
+    part(box(0.9, 0.05, 0.6), paint, xHull, hull, [4.25, 0.92, s * 1.5], [0, 0, -0.55]);
+    solid(new T.CircleGeometry(0.07, 16), lampMat, hull, [4.53, 0.75, s * 1.62], [0, PI / 2, 0]);
+    part(box(0.12, 0.1, 0.12), paintDark, xHull, hull, [4.1, 1.12, s * 1.72]);
+    part(box(0.12, 0.1, 0.12), paintDark, xHull, hull, [-4.0, 1.42, s * 1.72]);
+  });
+  const camAnchor = new T.Object3D(); camAnchor.position.set(4.1, 1.2, 1.72); hull.add(camAnchor);
+  [-0.68, 0, 0.68].forEach(z => part(box(0.6, 0.03, 0.5), paintDark, xHull, hull, [3.15, 1.29, z], [0, 0, -0.26]));
+  for (let i = 0; i < 6; i++) part(box(0.08, 0.03, 2.6), paintDark, xHull, hull, [-3.45 + i * 0.32, 1.52, 0]);
+  part(new T.CylinderGeometry(1.12, 1.12, 0.06, 40), paintDark, xHull, hull, [0.25, 1.53, 0]);
+
+  // crew capsule (hull front, below the turret line) with three crew side by side
+  const capsule = new T.Group(); hull.add(capsule);
+  ghostOnly(box(2.2, 0.82, 2.25), xCapsule, capsule, [2.75, 0.98, 0]);
+  const crew = [];
+  [[-0.72, 'Gunner'], [0, 'Driver'], [0.72, 'Commander']].forEach(([z, role], i) => {
+    const c = new T.Group(); c.position.set(2.55, 0.62, z); capsule.add(c);
+    solid(box(0.5, 0.08, 0.5), seatMat, c, [0, 0.05, 0]);
+    solid(box(0.08, 0.6, 0.5), seatMat, c, [-0.3, 0.33, 0], [0, 0, -0.45]);
+    solid(box(0.24, 0.48, 0.36), uniform, c, [-0.12, 0.36, 0], [0, 0, -0.45]);           // torso, reclined
+    const head = solid(new T.SphereGeometry(0.12, 14, 10), helmet, c, [0.0, 0.66, 0]);
+    solid(box(0.08, 0.05, 0.2), glass, c, [0.11, 0.64, 0]);
+    solid(box(0.42, 0.13, 0.32), uniform, c, [0.2, 0.15, 0]);                          // thighs
+    solid(box(0.12, 0.34, 0.3), uniform, c, [0.42, -0.02, 0]);                          // shins
+    [0.15, -0.15].forEach(az => solid(box(0.36, 0.08, 0.08), uniform, c, [0.12, 0.42, az], [0, 0, -0.4]));
+    solid(box(0.03, 0.26, 0.42), screenMat, c, [0.62, 0.46, 0], [0, 0, 0.35]);         // screens
+    crew.push({ head, role });
+  });
+
+  // powertrain in the rear hull: diesel engine, generator, batteries, cooling fans, cables to the drive motors
+  const power = new T.Group(); hull.add(power);
+  const engine = solid(box(1.3, 0.62, 1.2), engineMat, power, [-2.6, 0.95, 0]);
+  for (let i = 0; i < 4; i++) solid(new T.CylinderGeometry(0.11, 0.11, 0.22, 12), metal, power, [-3.1 + i * 0.33, 1.32, 0]);
+  const generator = solid(cylX(0.32, 0.8, 24), genMat, power, [-1.55, 0.95, 0]);
+  const batteries = [];
+  [1, -1].forEach(s => { for (let i = 0; i < 3; i++) batteries.push(solid(box(0.5, 0.42, 0.42), battMat, power, [-1.1 - i * 0.6, 0.78, s * 0.86])); });
+  const driveMotors = [1, -1].map(s => solid(cylZ(0.2, 0.36), motorMat, power, [-3.75, 0.62, s * 0.98]));
+  const fans = [1, -1].map(s => {
+    const f = new T.Group(); f.position.set(-2.55, 1.42, s * 0.62); power.add(f);
+    for (let b = 0; b < 5; b++) solid(box(0.42, 0.02, 0.1), metal, f, [0, 0, 0], [0, b * PI * 2 / 5, 0.25]);
+    ghostOnly(new T.TorusGeometry(0.46, 0.03, 6, 24).rotateX(PI / 2), xInner, f);
+    return f;
+  });
+  const flowTex = canvasTex(64, 8, (x, w, h) => { x.fillStyle = '#000'; x.fillRect(0, 0, w, h); const g = x.createLinearGradient(0, 0, w, 0); g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(0.5, 'rgba(255,255,255,1)'); g.addColorStop(1, 'rgba(255,255,255,0)'); x.fillStyle = g; x.fillRect(0, 0, w, h); });
+  flowTex.repeat.set(6, 1);
+  const flowMat = new T.MeshBasicMaterial({ map: flowTex, color: new T.Color(0.6, 2.2, 1.0), transparent: true, blending: T.AdditiveBlending, depthWrite: false, toneMapped: false, fog: false });
+  const cable = pts => { const m = new T.Mesh(new T.TubeGeometry(new T.CatmullRomCurve3(pts.map(p => V(...p))), 40, 0.035, 6), flowMat); power.add(m); return m; };
+  const cables = [cable([[-1.9, 0.95, 0], [-1.6, 0.6, 0.4], [-1.6, 0.62, 0.86]]), cable([[-1.9, 0.95, 0], [-1.6, 0.6, -0.4], [-1.6, 0.62, -0.86]]),
+    cable([[-2.3, 0.62, 0.86], [-3.2, 0.56, 0.9], [-3.6, 0.62, 0.98]]), cable([[-2.3, 0.62, -0.86], [-3.2, 0.56, -0.9], [-3.6, 0.62, -0.98]])];
+
+  // running gear: 7 road wheels a side, rear drive sprocket, front idler, return rollers, torsion bars, track
+  const WHEEL_R = 0.34, WHEEL_X = Array.from({ length: 7 }, (_, k) => 2.75 - k * 0.92);
+  const SPROCKET = V(-3.78, 0.66, 0), IDLER = V(3.62, 0.62, 0);
+  const wheels = [];
+  const running = [1, -1].map(s => {
+    const g = new T.Group(); g.position.z = s * 1.5; tank.add(g);
+    WHEEL_X.forEach(x => { const w = part(cylZ(WHEEL_R, 0.56), rubber, xRun, g, [x, WHEEL_R + 0.05, 0]); part(cylZ(0.16, 0.6), metal, xRun, w); wheels.push({ w, r: WHEEL_R }); });
+    const sp = part(cylZ(0.36, 0.5), paintDark, xRun, g, [SPROCKET.x, SPROCKET.y, 0]);
+    for (let k = 0; k < 11; k++) { const a = k / 11 * 2 * PI; part(box(0.12, 0.1, 0.5), paintDark, xRun, sp, [Math.cos(a) * 0.4, Math.sin(a) * 0.4, 0], [0, 0, a]); }
+    wheels.push({ w: sp, r: 0.42 });
+    const id = part(cylZ(0.32, 0.5), rubber, xRun, g, [IDLER.x, IDLER.y, 0]); wheels.push({ w: id, r: 0.36 });
+    [1.2, -1.6].forEach(x => { const rr = part(cylZ(0.1, 0.3), metal, xRun, g, [x, 1.0, 0]); wheels.push({ w: rr, r: 0.1 }); });
+    return g;
+  });
+  WHEEL_X.forEach(x => ghostOnly(cylZ(0.045, 2.4, 8), xInner, hull, [x, 0.56, 0]));
+  // track: links follow a closed loop around the wheels
+  const trackCurve = new T.CatmullRomCurve3([[3.1, 0.035], [1.5, 0.035], [0, 0.035], [-1.5, 0.035], [-3.1, 0.035], [-3.7, 0.24], [-4.18, 0.66], [-3.95, 1.06], [-3.4, 1.12], [-1.5, 1.12], [0, 1.13], [1.5, 1.12], [3.35, 1.0], [3.98, 0.72], [3.85, 0.36], [3.45, 0.1]].map(([x, y]) => V(x, y, 0)), true, 'centripetal');
+  const TRACK_LEN = trackCurve.getLength(), LINKS = 104;
+  const trackLUT = Array.from({ length: 1024 }, (_, i) => ({ p: trackCurve.getPointAt(i / 1024), tg: trackCurve.getTangentAt(i / 1024) }));
+  const linkGeo = box(0.15, 0.06, 0.64);
+  const tracks = [1, -1].map(s => {
+    const im = new T.InstancedMesh(linkGeo, trackMat, LINKS), gh = new T.InstancedMesh(linkGeo, xRun, LINKS);
+    gh.instanceMatrix = im.instanceMatrix; gh.renderOrder = 5; im.position.z = gh.position.z = s * 1.5;
+    tank.add(im); tank.add(gh); shells.push({ solid: im, ghost: gh }); return im;
+  });
+  const _m = new T.Matrix4(), _q = new T.Quaternion(), _s = V(1, 1, 1);
+  function setTrack(offset) {
+    for (let i = 0; i < LINKS; i++) {
+      let u = (i / LINKS + offset / TRACK_LEN) % 1; if (u < 0) u += 1;
+      const e = trackLUT[Math.floor(u * 1024) % 1024];
+      _q.setFromAxisAngle(V(0, 0, 1), Math.atan2(e.tg.y, e.tg.x));
+      _m.compose(e.p, _q, _s);
+      tracks.forEach(im => im.setMatrixAt(i, _m));
+    }
+    tracks.forEach(im => { im.instanceMatrix.needsUpdate = true; });
+  }
+
+  // armour skirts: tall two-tone panels with a zigzag and a blue stripe, like the AbramsX
+  const skirtTex = canvasTex(1024, 128, (x, w, h) => {
+    x.fillStyle = '#9aa1a7'; x.fillRect(0, 0, w, h);
+    x.fillStyle = '#33373c'; x.beginPath(); x.moveTo(0, h);
+    for (let i = 0; i <= 8; i++) x.lineTo(i * w / 8, i % 2 ? h * 0.3 : h * 0.62);
+    x.lineTo(w, h); x.closePath(); x.fill();
+    x.fillStyle = '#3d8ccc'; x.beginPath(); x.moveTo(w * 0.56, h * 0.16); x.lineTo(w * 0.96, h * 0.16); x.lineTo(w, h * 0.34); x.lineTo(w * 0.6, h * 0.34); x.closePath(); x.fill();
+    x.strokeStyle = 'rgba(0,0,0,0.35)'; x.lineWidth = 2;
+    for (let i = 1; i < 6; i++) { x.beginPath(); x.moveTo(i * w / 6, 0); x.lineTo(i * w / 6, h); x.stroke(); }
+  });
+  skirtTex.encoding = T.sRGBEncoding;
+  const skirtTexL = skirtTex.clone(); skirtTexL.repeat.set(-1, 1); skirtTexL.needsUpdate = true;   // mirrored so the stripe sits at the front on both sides
+  const skirtMatR = std(0xffffff, 0.3, 0.6, { map: skirtTex }), skirtMatL = std(0xffffff, 0.3, 0.6, { map: skirtTexL });
+  fadeMats.push(skirtMatR, skirtMatL);
+  const skirts = [1, -1].map(s => {
+    const g = new T.Group(); g.position.z = s * 1.86; tank.add(g);
+    const face = s > 0 ? skirtMatR : skirtMatL;
+    part(box(7.7, 0.82, 0.1), [paintDark, paintDark, paint, paintDark, face, face], xHull, g, [0.1, 0.89, 0]);
+    part(extrudeZ([[3.95, 1.3], [4.42, 1.3], [3.95, 0.5]], 0.1, 0.02), paintDark, xHull, g);
+    part(box(7.7, 0.05, 0.14), paint, xHull, g, [0.1, 1.32, 0]);
+    return g;
+  });
+
+  // ---------------------------------------------------------------- unmanned turret (compact, near the middle of the hull)
+  const TURRET_POS = V(0.25, 1.55, 0);
+  const turret = new T.Group(); turret.position.copy(TURRET_POS); tank.add(turret);
+  part(extrudeY([[1.85, 0.5], [1.25, 1.6], [-2.15, 1.68], [-2.65, 1.45], [-2.65, -1.45], [-2.15, -1.68], [1.25, -1.6], [1.85, -0.5]], 0.72, 0.06), paint, xTurret, turret);
+  part(box(0.3, 0.5, 0.75), paintDark, xTurret, turret, [1.95, 0.42, 0]);
+  // blow-off panel on the bustle roof (right rear; PERCH sits on the left rear)
+  const blowOff = [part(box(0.9, 0.03, 0.8), paintDark, xTurret, turret, [-1.95, 0.85, 0.75])];
+  // sensor pods on the front corners: commander's sight (right) and gunner's sight (left)
+  const pod = s => {
+    const g = new T.Group(); g.position.set(1.0, 0.84, s * 1.18); turret.add(g);
+    part(new T.CylinderGeometry(0.12, 0.15, 0.22, 14), paintDark, xTurret, g, [0, 0.11, 0]);
+    part(box(0.5, 0.42, 0.46), paint, xTurret, g, [0, 0.43, 0]);
+    [0.09, -0.09].forEach(z => solid(new T.CircleGeometry(0.075, 18), glass, g, [0.255, 0.45, z], [0, PI / 2, 0]));
+    return g;
+  };
+  const pano = pod(1), gunnerSight = pod(-1);
+  // active protection: radar panels on the cheeks and rear corners, interceptor launchers on the roof edge
+  const radars = [];
+  [[1.45, 1.15, 0.62], [1.45, -1.15, -0.62], [-2.55, 1.2, PI - 0.7], [-2.55, -1.2, PI + 0.7]].forEach(([x, z, ry]) => radars.push(part(box(0.05, 0.42, 0.55), paintDark, xTurret, turret, [x, 0.42, z], [0, ry, 0])));
+  const aps = [1, -1].map(s => { const g = new T.Group(); g.position.set(-0.25, 0.86, s * 1.38); turret.add(g); part(box(0.4, 0.2, 0.3), paintDark, xTurret, g, [0, 0.1, 0]); part(new T.SphereGeometry(0.15, 12, 8, 0, PI * 2, 0, PI / 2), paint, xTurret, g, [0, 0.2, 0]); return g; });
+  // remote weapon station with a 30 mm cannon, centre of the roof
+  const rcws = new T.Group(); rcws.position.set(0.1, 0.84, 0.3); turret.add(rcws);
+  part(new T.CylinderGeometry(0.38, 0.42, 0.14, 24), paintDark, xTurret, rcws, [0, 0.07, 0]);
+  const rcwsPitch = new T.Group(); rcwsPitch.position.set(0, 0.42, 0); rcws.add(rcwsPitch);
+  part(box(1.0, 0.42, 0.55), paint, xTurret, rcwsPitch, [-0.05, 0, 0]);
+  part(box(0.5, 0.3, 0.3), paintDark, xTurret, rcwsPitch, [-0.1, 0.05, 0.42]);
+  part(new T.TorusGeometry(0.3, 0.05, 6, 16, PI), paintDark, xTurret, rcwsPitch, [-0.1, 0.22, 0.42], [0, PI / 2, 0]);   // ammo feed chute
+  part(box(0.3, 0.22, 0.25), paintDark, xTurret, rcwsPitch, [0.2, 0.3, -0.22]);
+  solid(box(0.02, 0.12, 0.18), glass, rcwsPitch, [0.36, 0.3, -0.22]);
+  part(lathe([[0.06, 0.45], [0.05, 0.6], [0.045, 2.2], [0.06, 2.25], [0.06, 2.45]], 14), paintDark, xTurret, rcwsPitch);
+  // 120 mm gun: pivot at the trunnions, recoiling barrel, breech inside the turret
+  const gunPivot = new T.Group(); gunPivot.position.set(1.35, 0.42, 0); turret.add(gunPivot);
+  const gun = new T.Group(); gunPivot.add(gun);
+  part(lathe([[0.17, 0.6], [0.17, 1.25], [0.14, 1.3], [0.14, 3.2], [0.175, 3.3], [0.175, 3.95], [0.125, 4.05], [0.125, 5.55], [0.15, 5.6], [0.15, 5.98], [0.06, 5.98]], 24), paint, xTurret, gun);
+  solid(new T.CircleGeometry(0.06, 16), new T.MeshBasicMaterial({ color: 0x050505 }), gun, [5.985, 0, 0], [0, PI / 2, 0]);
+  for (let k = 0; k < 8; k++) { const a = k / 8 * 2 * PI; solid(box(0.18, 0.02, 0.05), paintDark, gun, [5.79, Math.cos(a) * 0.15, Math.sin(a) * 0.15], [a, 0, 0]); }
+  part(box(1.0, 0.36, 0.42), paintDark, xInner, gun, [-0.5, 0, 0]);    // breech block
+  const MUZZLE = V(6.0, 0, 0);
+  // autoloader cassette in the bustle: 2 rows x 9 rounds facing forward, plus the rammed round
+  const AL_X = -1.95;
+  const autoloader = new T.Group(); turret.add(autoloader);
+  ghostOnly(box(1.25, 0.62, 3.0), xInner, autoloader, [AL_X, 0.38, 0]);
+  const makeRound = () => {
+    const r = new T.Group();
+    solid(cylX(0.06, 0.18, 12), roundBase, r, [-0.4, 0, 0]);
+    solid(cylX(0.058, 0.6, 12), roundBody, r, [0.0, 0, 0]);
+    solid(cylX(0.012, 0.22, 10, 0.05), roundTip, r, [0.41, 0, 0]);
+    return r;
+  };
+  const rounds = [];
+  [0.52, 0.24].forEach(y => { for (let k = 0; k < 9; k++) { const r = makeRound(); r.position.set(AL_X, y, -1.28 + k * 0.32); autoloader.add(r); rounds.push(r); } });
+  const RAM_SLOT = 4;           // top row, centre slot
+  const ramRound = makeRound(); turret.add(ramRound);
+  const rammer = ghostOnly(box(0.5, 0.08, 0.08), xInner, autoloader);
+
+  // ---------------------------------------------------------------- PERCH launcher: on the turret roof, rear left; lies flat, tips up to fire
+  const PERCH_POS = V(-0.7, 0.84, -1.08);
+  const perch = new T.Group(); perch.position.copy(PERCH_POS); turret.add(perch);     // hinge line at the canister's front-bottom edge
+  part(box(1.85, 0.04, 0.7), paintDark, xPerch, perch, [-0.92, 0.0, 0]);              // mounting plate
+  const canister = new T.Group(); canister.position.y = 0.02; perch.add(canister);
+  [[-0.9, 0.0, 0, 1.8, 0.03, 0.68], [-0.9, 0.44, 0, 1.8, 0.03, 0.68], [-0.9, 0.22, 0.34, 1.8, 0.44, 0.03], [-0.9, 0.22, -0.34, 1.8, 0.44, 0.03], [0.0, 0.22, 0, 0.03, 0.44, 0.68]]
+    .forEach(([x, y, z, w, h, d]) => part(box(w, h, d), perchMat, xPerch, canister, [x, y, z]));
+  part(box(1.7, 0.02, 0.5), paintDark, xPerch, canister, [-0.9, 0.46, 0]);
+  const actuator = { barrel: part(new T.CylinderGeometry(0.05, 0.05, 1, 10), paintDark, xPerch, perch), rod: part(new T.CylinderGeometry(0.03, 0.03, 1, 10), metal, xPerch, perch) };
+  const ACT_BASE = V(-0.25, 0.03, 0), ACT_TOP = V(-1.0, 0.02, 0);   // in perch / canister space
+  // tubes: one Switchblade 600 + three Switchblade 300, muzzles at the rear end (x = -1.8)
+  const TUBES = [
+    { kind: 600, y: 0.22, z: -0.2, r: 0.1, len: 1.6 },
+    { kind: 300, y: 0.31, z: 0.03, r: 0.065, len: 0.8 },
+    { kind: 300, y: 0.12, z: 0.03, r: 0.065, len: 0.8 },
+    { kind: 300, y: 0.22, z: 0.21, r: 0.065, len: 0.8 },
+  ];
+  TUBES.forEach(tb => {
+    part(alongX(new T.CylinderGeometry(tb.r, tb.r, tb.len, 20, 1, true)), tubeMat, xPerch, canister, [-1.8 + tb.len / 2, tb.y, tb.z]);
+    tb.cap = part(cylX(tb.r, 0.015, 20), capMat, xPerch, canister, [-1.8, tb.y, tb.z]);
+  });
+
+  // ---------------------------------------------------------------- Switchblade (unit length, nose +x; scaled per model)
+  function makeDrone(kind) {
+    const g = new T.Group(); g.scale.setScalar(kind === 600 ? 1.3 : 0.6);
+    const d = { g, kind };
+    part(lathe([[0, -0.5], [0.03, -0.5], [0.045, -0.46], [0.058, -0.38], [0.058, 0.5], [0.05, 0.535], [0.03, 0.555], [0, 0.56]], 24), droneBody, xDrone, g);
+    [0.3, -0.1].forEach(x => part(lathe([[0.0585, x - 0.005], [0.0585, x + 0.005]], 24), droneWing, xDrone, g));
+    solid(new T.SphereGeometry(0.042, 16, 10), glass, g, [0.52, 0, 0]);
+    [[-0.03, 0.03], [0.03, 0.03]].forEach(([y, z]) => solid(new T.SphereGeometry(0.008, 8, 6), lampMat, g, [0.505, y, z]));
+    // internals
+    solid(cylX(0.04, 0.1, 14), glass, g, [0.44, 0, 0]);
+    d.warhead = solid(lathe([[0, 0.12], [0.045, 0.13], [0.045, 0.34], [0, 0.35]], 16), warheadMat, g);
+    d.battery = solid(box(0.24, 0.06, 0.07), dBattMat, g, [-0.02, -0.005, 0]);
+    solid(box(0.16, 0.01, 0.06), boardMat, g, [-0.24, 0.035, 0]);
+    d.motor = solid(cylX(0.035, 0.1, 14), motorMat, g, [-0.42, 0, 0]);
+    // wings: front pair pivots under the body (stowed pointing aft), rear pair on top (stowed pointing forward)
+    const wingGeoAft = box(0.6, 0.008, 0.085).translate(-0.3, 0, 0), wingGeoFwd = box(0.6, 0.008, 0.075).translate(0.3, 0, 0);
+    const pivot = (x, y) => { const p = new T.Group(); p.position.set(x, y, 0); g.add(p); part(new T.CylinderGeometry(0.03, 0.03, 0.012, 16), droneWing, xDrone, p); return p; };
+    const fp = pivot(0.18, -0.062), rp = pivot(-0.33, 0.062);
+    d.wf = [-0.006, -0.015].map(y => { const w = new T.Group(); w.position.y = y; fp.add(w); part(wingGeoAft, droneWing, xDrone, w); return w; });
+    d.wr = [0.006, 0.015].map(y => { const w = new T.Group(); w.position.y = y; rp.add(w); part(wingGeoFwd, droneWing, xDrone, w); return w; });
+    // tail fins fold flat sideways, flip upright
+    d.finT = new T.Group(); d.finT.position.set(-0.42, 0.055, 0); g.add(d.finT); part(box(0.12, 0.13, 0.006).translate(0, 0.065, 0), droneWing, xDrone, d.finT);
+    d.finB = new T.Group(); d.finB.position.set(-0.42, -0.055, 0); g.add(d.finB); part(box(0.1, 0.09, 0.006).translate(0, -0.045, 0), droneWing, xDrone, d.finB);
+    // pusher propeller: two blades fold forward along the body
+    d.hub = new T.Group(); d.hub.position.x = -0.52; g.add(d.hub);
+    part(cylX(0.012, 0.05, 12, 0.025), droneWing, xDrone, d.hub, [-0.02, 0, 0]);
+    d.blades = [1, -1].map(s => { const b = new T.Group(); d.hub.add(b); part(box(0.012, 0.16, 0.03).translate(0, s * 0.08, 0), droneWing, xDrone, b); b.userData.s = s; return b; });
+    d.disc = new T.Mesh(new T.CircleGeometry(0.17, 24).rotateY(PI / 2), new T.MeshBasicMaterial({ color: 0x222428, transparent: true, opacity: 0, depthWrite: false })); d.disc.position.x = -0.53; g.add(d.disc);
+    d.set = (wing, fin, prop, spin) => {
+      d.wf[0].rotation.y = wing * PI / 2; d.wf[1].rotation.y = -wing * PI / 2;
+      d.wr[0].rotation.y = -wing * PI / 2; d.wr[1].rotation.y = wing * PI / 2;
+      d.finT.rotation.x = (1 - fin) * PI / 2; d.finB.rotation.x = -(1 - fin) * PI / 2;
+      d.blades.forEach(b => { b.rotation.z = -b.userData.s * (1 - prop) * PI / 2; });
+      d.hub.rotation.x = spin || 0;
+      d.disc.material.opacity = prop > 0.95 && spin ? 0.18 : 0;
+    };
+    d.set(0, 0, 0, 0);
+    return d;
+  }
+  const tubeDrones = TUBES.map(tb => {
+    const d = makeDrone(tb.kind); canister.add(d.g);
+    const L = tb.kind === 600 ? 1.3 : 0.6;
+    d.g.position.set(-1.8 + 0.08 + L * 0.53, tb.y, tb.z); d.g.rotation.y = PI;      // nose toward the muzzle
+    return d;
+  });
+  const flyDrones = TUBES.map(tb => { const d = makeDrone(tb.kind); scene.add(d.g); d.g.visible = false; return d; });
+  const showDrone = makeDrone(300); scene.add(showDrone.g); showDrone.g.visible = false;
+  // nav-light markers and fading trails so the drones read in wide shots
+  const TRAIL_N = 60;
+  const trailMat = new T.LineBasicMaterial({ color: new T.Color(0.6, 1.4, 1.8), transparent: true, opacity: 0.5, blending: T.AdditiveBlending, depthWrite: false, toneMapped: false, fog: false });
+  const trails = flyDrones.map(() => { const g = new T.BufferGeometry(); g.setAttribute('position', new T.BufferAttribute(new Float32Array(TRAIL_N * 3), 3)); const l = new T.Line(g, trailMat); l.frustumCulled = false; l.visible = false; scene.add(l); return l; });
+
+  // ---------------------------------------------------------------- sheds (instanced boards so they can fly apart)
+  const SHEDS = [
+    { p: V(150, 0, -15), s: 1.0 },   // A: main gun
+    { p: V(335, 0, -45), s: 1.0 },   // B: drone 1
+    { p: V(360, 0, 32), s: 1.0 },    // C: drone 2
+    { p: V(392, 0, -8), s: 1.0 },    // D: drone 3
+    { p: V(425, 0, 48), s: 1.5 },    // E: barn, Switchblade 600
+  ];
+  const boards = [];
+  SHEDS.forEach((sh, j) => {
+    contactShadow(7 * sh.s, 6 * sh.s).position.set(sh.p.x, 0.02, sh.p.z);
+    const W = 4 * sh.s, D = 3 * sh.s, H = 2.4 * sh.s, bw = 0.3 * sh.s;
+    for (let i = 0; i < Math.round(W / bw); i++) [1, -1].forEach(f => boards.push({ j, pos: V(-W / 2 + bw * (i + 0.5), H / 2, f * D / 2), rot: new T.Euler(0, 0, 0), size: V(bw * 0.95, H, 0.06) }));
+    for (let i = 0; i < Math.round(D / bw); i++) [1, -1].forEach(f => boards.push({ j, pos: V(f * W / 2, H / 2, -D / 2 + bw * (i + 0.5)), rot: new T.Euler(0, 0, 0), size: V(0.06, H, bw * 0.95) }));
+    const slope = 0.45, rl = (D / 2 + 0.3) / Math.cos(slope);
+    for (let i = 0; i < 6; i++) [1, -1].forEach(f => boards.push({ j, pos: V(-W / 2 - 0.2 + (W + 0.4) * (i + 0.5) / 6, H + Math.sin(slope) * rl / 2, f * Math.cos(slope) * rl / 2), rot: new T.Euler(f * slope, 0, 0), size: V((W + 0.4) / 6 * 0.97, 0.06, rl) }));
+  });
+  const boardGeo = box(1, 1, 1);
+  const boardMesh = new T.InstancedMesh(boardGeo, woodMat, boards.length);
+  boards.forEach((b, i) => { const c = 0.45 + rand(i, 9) * 0.25; boardMesh.setColorAt(i, new T.Color(c * 1.0, c * 0.78, c * 0.55).convertSRGBToLinear()); });
+  scene.add(boardMesh);
+
+  // ---------------------------------------------------------------- effects
+  const radial = stops => canvasTex(128, 128, (x, w) => { const gr = x.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2); stops.forEach(([o, c]) => gr.addColorStop(o, c)); x.fillStyle = gr; x.fillRect(0, 0, w, w); });
+  const flareTex = radial([[0, 'rgba(255,255,255,1)'], [0.25, 'rgba(255,220,150,0.9)'], [0.55, 'rgba(255,140,40,0.35)'], [1, 'rgba(255,90,0,0)']]);
+  const smokeTex = radial([[0, 'rgba(255,255,255,0.9)'], [0.5, 'rgba(255,255,255,0.35)'], [1, 'rgba(255,255,255,0)']]);
+  const sprite = (color, parent = scene) => { const s = new T.Sprite(new T.SpriteMaterial({ map: flareTex, color, blending: T.AdditiveBlending, depthWrite: false, transparent: true, toneMapped: false, fog: false })); s.visible = false; parent.add(s); return s; };
+  const addMat = color => new T.MeshBasicMaterial({ map: flareTex, color, transparent: true, blending: T.AdditiveBlending, depthWrite: false, side: T.DoubleSide, toneMapped: false, fog: false });
+  const petalGeo = new T.PlaneGeometry(1, 1).translate(0.5, 0, 0);
+
+  const muzzle = new T.Group(); muzzle.position.copy(MUZZLE); gun.add(muzzle);
+  const blastMat = addMat(new T.Color(2.8, 1.8, 0.8));
+  const blastCore = sprite(new T.Color(3, 2.4, 1.6), muzzle);
+  const blastPetals = [0, 1, 2, 3].map(i => { const m = new T.Mesh(petalGeo, blastMat); m.rotation.x = i * PI / 4; muzzle.add(m); return m; });
+  const sideJets = [1, -1].map(s => { const m = new T.Mesh(petalGeo, blastMat); m.rotation.y = s * PI / 2.2; muzzle.add(m); return m; });
+  const flashLight = new T.PointLight(0xffb060, 0, 80, 2); scene.add(flashLight);
+  const tracerMat = addMat(new T.Color(3, 2.4, 1.4));
+  const tracer = new T.Mesh(new T.PlaneGeometry(1, 0.35).translate(-0.5, 0, 0), tracerMat); tracer.visible = false; scene.add(tracer);
+  const tracer2 = tracer.clone(); tracer2.rotation.x = PI / 2; tracer.add(tracer2);
+  const launchFlash = sprite(new T.Color(2.4, 2.2, 2.0));
+  const markers = flyDrones.map((d, i) => sprite(i === 3 ? new T.Color(3, 1.3, 0.6) : new T.Color(1.3, 2.5, 3)));
+  const explosions = SHEDS.map(() => ({
+    flash: sprite(new T.Color(3, 2.3, 1.4)), fire: [0, 1, 2, 3, 4].map(() => sprite(new T.Color(2.6, 1.2, 0.35))),
+    shock: (() => { const m = new T.Mesh(new T.RingGeometry(0.95, 1.0, 64).rotateX(-PI / 2), new T.MeshBasicMaterial({ color: new T.Color(2, 1.7, 1.3), transparent: true, blending: T.AdditiveBlending, depthWrite: false, toneMapped: false, fog: false })); m.visible = false; scene.add(m); return m; })(),
+    scorch: (() => { const m = new T.Mesh(new T.CircleGeometry(1, 32).rotateX(-PI / 2), new T.MeshBasicMaterial({ color: 0x0c0a08, transparent: true, opacity: 0.8, depthWrite: false })); m.visible = false; scene.add(m); return m; })(),
+    sparks: Array.from({ length: 16 }, () => sprite(new T.Color(3, 1.8, 0.7))),
+  }));
+  const smokePool = Array.from({ length: 260 }, () => { const s = new T.Sprite(new T.SpriteMaterial({ map: smokeTex, color: 0x8f9499, transparent: true, depthWrite: false, opacity: 0, fog: false })); s.visible = false; scene.add(s); return s; });
+
+  // ---------------------------------------------------------------- timeline
+  const LOOP = 114;
+  const DRIVE_END = 6.2;
+  const FIRE = 75.0, SHELL_TIME = 0.1;
+  const LAUNCH = [80.0, 80.7, 81.4, 82.6];
+  const IMPACT = [97.5, 99.5, 101.5, 104.0];
+  const XRAY = [[12.8, 13.6, 70.4, 71.2]];
+  const SEG = [
+    [0, DRIVE_END, 'Driving in'], [DRIVE_END, 13.4, 'Breakdown'], [13.4, 22.2, 'Crew'], [22.2, 31.2, 'Turret'], [31.2, 37.2, 'Turret roof'],
+    [37.2, 45.2, 'Powertrain'], [45.2, 51.2, 'Running gear'], [51.2, 60.2, 'PERCH'], [60.2, 71.0, 'Switchblade'], [71.0, 77.2, 'Main gun'],
+    [77.2, 86.0, 'Launch'], [86.0, 95.0, 'Loiter'], [95.0, 105.5, 'Strike'], [105.5, LOOP, 'Done'],
+  ];
+  const CAPTIONS = [
+    [0, DRIVE_END, '', 'Our own take on a next-gen Abrams: three crew in the hull, an unmanned turret, and a drone launcher on the turret roof.'],
+    [DRIVE_END, 13.4, '01 · Breakdown', 'Four main pieces: the hull and running gear, the unmanned turret, bolt-on armor skirts, and the PERCH drone launcher.'],
+    [13.4, 22.2, '02 · Crew capsule', 'All three crew sit up front in the hull, inside an armored capsule below the turret: driver in the middle, gunner and commander either side. They see out through cameras and screens.', 'x'],
+    [22.2, 31.2, '03 · Unmanned turret', 'Nobody rides in the turret. A cassette autoloader in the bustle holds the 120 mm rounds facing forward and rams them into the breech.', 'x'],
+    [31.2, 37.2, '04 · Turret roof', 'A remote 30 mm cannon deals with drones and light vehicles. Radar panels watch for incoming rockets so the active protection system can shoot them down.', 'x'],
+    [37.2, 45.2, '05 · Hybrid drive', 'A diesel engine spins a generator that charges batteries. Electric motors drive the sprockets, so the tank can creep or sit silent on battery power.', 'x'],
+    [45.2, 51.2, '06 · Running gear', 'Seven road wheels a side on torsion-bar suspension. The rear sprocket drives the track and the front idler keeps it tight.', 'x'],
+    [51.2, 60.2, '07 · PERCH launcher', 'PERCH sits on the turret roof and lies folded flat until it’s needed. Its canister carries three Switchblade 300s and one bigger Switchblade 600, and a single actuator tips it up to fire.', 'x'],
+    [60.2, 71.0, '08 · Switchblade', 'In the tube everything is folded. Once out, spring-loaded wings swing open on a pivot like scissors, the tail fins flip up, and the propeller blades swing out as the motor spins.', 'x'],
+    [71.0, 77.2, '09 · Main gun', 'Shed in sight. One 120 mm round takes it out.'],
+    [77.2, 86.0, '10 · Launch', 'The canister tips up and the drones pop out one after another, unfolding as they climb.'],
+    [86.0, 95.0, '11 · Loiter', 'They fly past the tank’s line of sight and circle the targets. The crew watches each drone’s camera, picks a target, and can still call off a dive at the last second.'],
+    [95.0, 105.5, '12 · Strike', 'One dive, one shed. The bigger Switchblade 600 saves its heavier warhead for the barn.'],
+    [105.5, LOOP, '', 'Main gun for what the crew can see. Drones for what they can’t.'],
+  ];
+  const FOCUS = [[13.4, 22.2, ['capsule', 'hull']], [22.2, 37.2, ['turret', 'inner']], [37.2, 45.2, ['hull', 'inner']], [45.2, 51.2, ['run', 'inner']], [51.2, 60.2, ['perch']], [60.2, 71.0, ['drone', 'perch']]];
+
+  // ---------------------------------------------------------------- drone flight paths (built once the launcher pose is known)
+  const LOITER_C = V(378, 0, 2), LOITER_R = 72;
+  const ENTRY = [PI, 0.78 * PI, 1.22 * PI, 0.9 * PI], ALT = [90, 98, 106, 124];
+  const CRUISE = [30, 30, 30, 32];
+  const _v = V(0, 0, 0);
+  let paths = null;
+  function buildPaths() {
+    // canister pose when fully raised
+    const keep = [turret.rotation.y, canister.rotation.z, tank.position.x, tank.rotation.z, gun.position.x];
+    turret.rotation.y = 0; canister.rotation.z = -0.95; tank.position.x = 0; tank.rotation.z = 0;
+    tank.updateMatrixWorld(true);
+    paths = TUBES.map((tb, i) => {
+      const muz = canister.localToWorld(V(-1.85, tb.y, tb.z));
+      const axis = canister.localToWorld(V(-2.85, tb.y, tb.z)).sub(muz).normalize();
+      const a = ENTRY[i], alt = ALT[i];
+      const entry = V(LOITER_C.x + Math.cos(a) * LOITER_R, alt, LOITER_C.z + Math.sin(a) * LOITER_R);
+      const tang = V(-Math.sin(a), 0, Math.cos(a));
+      const pts = [muz, muz.clone().addScaledVector(axis, 8), muz.clone().addScaledVector(axis, 14).add(V(10, 6, 0)), V(60, 52, -12 + i * 8), V(160, 76, entry.z * 0.4), entry.clone().addScaledVector(tang, -34), entry];
+      const curve = new T.CatmullRomCurve3(pts, false, 'centripetal');
+      const len = curve.getLength(), v = CRUISE[i];
+      const s = tau => v * tau - 6 * (1 - Math.exp(-tau * 2));       // leaves the tube a little slower, then cruises
+      let lo = 0, hi = 60; for (let k = 0; k < 40; k++) { const m = (lo + hi) / 2; if (s(m) < len) lo = m; else hi = m; }
+      const enter = LAUNCH[i] + lo, omega = v / LOITER_R;
+      const target = SHEDS[i + 1].p.clone().add(V(0, 1.2 * SHEDS[i + 1].s, 0));
+      let diveDur = 3;
+      let exit, exitTan;
+      for (let k = 0; k < 3; k++) {
+        const th = a + omega * (IMPACT[i] - diveDur - enter);
+        exit = V(LOITER_C.x + Math.cos(th) * LOITER_R, alt, LOITER_C.z + Math.sin(th) * LOITER_R);
+        exitTan = V(-Math.sin(th), 0, Math.cos(th));
+        diveDur = (exit.distanceTo(target) + 20) / (i === 3 ? 48 : 44);
+      }
+      const dive = new T.CubicBezierCurve3(exit, exit.clone().addScaledVector(exitTan, 28), target.clone().add(V(0, 30, 0)), target);
+      return { muz, axis, curve, len, s, enter, omega, a, alt, dive, diveStart: IMPACT[i] - diveDur, diveDur, target };
+    });
+    turret.rotation.y = keep[0]; canister.rotation.z = keep[1]; tank.position.x = keep[2]; tank.rotation.z = keep[3];
+    tank.updateMatrixWorld(true);
+  }
+  // returns { pos, tan, phase, speedKmh } for drone i at time t
+  function droneState(i, t) {
+    const P = paths[i], tau = t - LAUNCH[i];
+    if (tau < 0 || t >= IMPACT[i]) return null;
+    const cruiseKmh = i === 3 ? 113 : 100, dashKmh = i === 3 ? 185 : 160;
+    if (t < P.enter) {
+      const u = clamp(P.s(tau) / P.len, 0, 1);
+      return { pos: P.curve.getPointAt(u), tan: P.curve.getTangentAt(u), phase: 'climb', kmh: cruiseKmh * clamp(0.6 + tau / 2, 0, 1), tau };
+    }
+    if (t < P.diveStart) {
+      const th = P.a + P.omega * (t - P.enter);
+      return { pos: V(LOITER_C.x + Math.cos(th) * LOITER_R, P.alt, LOITER_C.z + Math.sin(th) * LOITER_R), tan: V(-Math.sin(th), 0, Math.cos(th)), phase: 'loiter', kmh: cruiseKmh, tau, bank: 0.45 };
+    }
+    const k = Math.pow(clamp((t - P.diveStart) / P.diveDur), 1.35);
+    return { pos: P.dive.getPoint(k), tan: P.dive.getTangent(k).normalize(), phase: 'dive', kmh: lerp(cruiseKmh, dashKmh, k), tau };
+  }
+  const _f = V(0, 0, 0), _u = V(0, 0, 0), _r = V(0, 0, 0), _mb = new T.Matrix4();
+  function orient(obj, tan, roll) {
+    _f.copy(tan).normalize();
+    _r.crossVectors(_f, V(0, 1, 0)); if (_r.lengthSq() < 1e-6) _r.set(0, 0, 1); _r.normalize();
+    _u.crossVectors(_r, _f).normalize();
+    if (roll) { _u.applyAxisAngle(_f, roll); _r.applyAxisAngle(_f, roll); }
+    _mb.makeBasis(_f, _u, _r); obj.quaternion.setFromRotationMatrix(_mb);
+  }
+
+  // ---------------------------------------------------------------- camera keys (target in world space)
+  const W = (obj, x, y, z) => () => { obj.updateMatrixWorld(true); const p = obj.localToWorld(V(x, y, z)); return [p.x, p.y, p.z]; };
+  const tankT = () => [tank.position.x + 0.5, 1.5, 0];
+  const droneT = i => () => { const d = flyDrones[i].g; return d.visible ? [d.position.x, d.position.y, d.position.z] : [paths ? paths[i].target.x : 0, 2, paths ? paths[i].target.z : 0]; };
+  const showT = () => [showDrone.g.position.x, showDrone.g.position.y, showDrone.g.position.z];
+  const shedT = j => [SHEDS[j].p.x, 3 * SHEDS[j].s, SHEDS[j].p.z];
+  const CAM = [
+    { t: 0, tg: tankT, az: 1.05, el: 0.06, d: 17 },
+    { t: 5.6, tg: tankT, az: 0.7, el: 0.12, d: 19 },
+    { t: 7.0, tg: [-0.2, 2.6, 0.4], az: 0.55, el: 0.3, d: 23 },
+    { t: 11.8, tg: [-0.2, 2.4, 0.2], az: 0.3, el: 0.28, d: 23 },
+    { t: 13.6, tg: [2.6, 1.0, 0], az: 0.95, el: 0.5, d: 9 },
+    { t: 21.6, tg: [2.6, 1.0, 0], az: 1.3, el: 0.55, d: 8.5 },
+    { t: 22.6, tg: [-1.3, 2.0, 0], az: 0.3, el: 0.6, d: 10 },
+    { t: 30.6, tg: [-1.1, 2.0, 0], az: 0.05, el: 0.5, d: 9.5 },
+    { t: 31.8, tg: [-0.4, 2.7, 0], az: 0.85, el: 0.38, d: 9.5 },
+    { t: 36.6, tg: [-0.4, 2.7, 0], az: 1.35, el: 0.32, d: 9.5 },
+    { t: 37.8, tg: [-2.4, 1.0, 0], az: -0.65, el: 0.55, d: 10.5 },
+    { t: 44.6, tg: [-2.4, 1.0, 0], az: -1.05, el: 0.48, d: 10.5 },
+    { t: 45.8, tg: [0, 0.6, 1.5], az: 0.12, el: 0.12, d: 11 },
+    { t: 50.6, tg: [-0.4, 0.6, 1.5], az: 0.32, el: 0.1, d: 10.5 },
+    { t: 51.8, tg: W(perch, -0.9, 0.3, 0), az: -2.45, el: 0.4, d: 6.5 },
+    { t: 59.6, tg: W(perch, -1.3, 0.9, 0), az: -2.15, el: 0.32, d: 6 },
+    { t: 61.6, tg: showT, az: 2.95, el: 0.72, d: 1.15 },
+    { t: 68.8, tg: showT, az: 2.7, el: 0.5, d: 1.25 },
+    { t: 71.2, tg: [4, 2.2, 0], az: -1.3, el: 0.14, d: 20 },
+    { t: 74.9, tg: [12, 2.2, -1], az: -1.38, el: 0.11, d: 26 },
+    { t: 75.08, tg: shedT(0), az: 0.55, el: 0.18, d: 34, nf: 1 },
+    { t: 76.9, tg: shedT(0), az: 0.85, el: 0.24, d: 38, nf: 1 },
+    { t: 77.25, tg: W(perch, -0.9, 0.4, 0), az: -2.45, el: 0.25, d: 8 },
+    { t: 79.6, tg: W(perch, -1.4, 1.1, 0), az: -2.2, el: 0.2, d: 9 },
+    { t: 81.4, tg: droneT(0), az: -2.0, el: 0.15, d: 14 },
+    { t: 85.0, tg: droneT(0), az: -1.1, el: 0.2, d: 30 },
+    { t: 87.2, tg: droneT(0), az: 0.4, el: 0.25, d: 13, nf: 1 },
+    { t: 90.4, tg: droneT(0), az: 0.9, el: 0.3, d: 12, nf: 1 },
+    { t: 92.2, tg: [378, 40, 2], az: 0.35, el: 0.55, d: 230 },
+    { t: 95.2, tg: [378, 30, 2], az: 0.5, el: 0.5, d: 210 },
+    { t: 96.3, tg: shedT(1), az: 0.5, el: 0.2, d: 60, nf: 1 },
+    { t: 98.3, tg: shedT(2), az: 0.6, el: 0.2, d: 60, nf: 1 },
+    { t: 100.3, tg: shedT(3), az: 0.45, el: 0.2, d: 62, nf: 1 },
+    { t: 102.4, tg: shedT(4), az: 0.6, el: 0.22, d: 80, nf: 1 },
+    { t: 104.9, tg: shedT(4), az: 0.72, el: 0.24, d: 84, nf: 1 },
+    { t: 105.6, tg: [15, 3, 0], az: -1.25, el: 0.12, d: 40 },
+    { t: LOOP, tg: [15, 3, 0], az: -1.0, el: 0.15, d: 36 },
+  ];
+
+  // ---------------------------------------------------------------- callouts (HTML labels pinned to 3D points)
+  const CALLOUTS = [
+    [8.2, 11.6, turret, [0.6, 0.85, -0.6], 'Unmanned turret', 26, -30],
+    [8.2, 11.6, canister, [-0.9, 0.46, 0], 'PERCH drone launcher', -30, -30],
+    [8.2, 11.6, skirts[0], [1.2, 1.2, 0.08], 'Armor skirts', 30, 24],
+    [8.2, 11.6, hull, [3.2, 1.3, -1.0], 'Hull + crew capsule', -30, -30],
+    [8.2, 11.6, running[0], [-1.0, 0.3, 0.3], 'Running gear', -34, 30],
+    [15.0, 21.9, crew[1].head, [0, 0.14, 0], 'Driver', -26, -52],
+    [15.0, 21.9, crew[0].head, [0, 0.14, 0], 'Gunner', 34, -40],
+    [15.0, 21.9, crew[2].head, [0, 0.14, 0], 'Commander', -40, 34],
+    [15.8, 21.9, capsule, [3.85, 0.6, -1.05], 'Armored crew capsule', -24, -74],
+    [16.6, 21.9, camAnchor, [0, 0.06, 0], '360° cameras', 26, -40],
+    [23.4, 30.9, gun, [3.2, 0.2, 0], '120 mm gun', 20, -34],
+    [23.4, 30.9, autoloader, [AL_X, 0.7, 1.2], 'Autoloader cassette', 30, -30],
+    [24.4, 30.9, rounds[13], [0.3, 0, 0], 'Rounds face forward', -30, 34],
+    [25.4, 30.9, gun, [-0.6, 0.2, 0], 'Breech', -24, -36],
+    [26.6, 30.9, blowOff[0], [0, 0.03, 0], 'Blow-off panel', 30, -24],
+    [32.4, 36.9, rcwsPitch, [1.4, 0, 0], '30 mm remote cannon', 26, -30],
+    [32.8, 36.9, pano, [0, 0.66, 0], 'Commander’s sight', 28, -22],
+    [33.0, 36.9, canister, [-0.9, 0.46, 0], 'PERCH (folded)', -30, -26],
+    [33.4, 36.9, radars[0], [0.04, 0, 0], 'Protection radar', 30, 26],
+    [33.8, 36.9, aps[0], [0, 0.3, 0], 'Interceptor launcher', -30, -30],
+    [38.6, 44.9, engine, [0, 0.32, 0], 'Diesel engine', -30, -30],
+    [39.2, 44.9, generator, [0, 0.33, 0], 'Generator', 30, -30],
+    [39.8, 44.9, batteries[0], [0, 0.22, 0.2], 'Battery packs', 32, 22],
+    [40.6, 44.9, driveMotors[0], [0, 0, 0.2], 'Electric drive to sprocket', -30, 30],
+    [41.2, 44.9, fans[0], [0, 0.05, 0], 'Cooling fans', 30, -26],
+    [46.6, 50.9, wheels[3].w, [0, 0, 0.3], 'Road wheels ×7', 0, 40],
+    [47.0, 50.9, wheels[7].w, [0, 0, 0.3], 'Drive sprocket', -30, -28],
+    [47.4, 50.9, wheels[8].w, [0, 0, 0.3], 'Idler', 30, -28],
+    [47.8, 50.9, hull, [WHEEL_X[4], 0.56, 1.1], 'Torsion bars', -28, 34],
+    [48.2, 50.9, running[0], [1.9, 1.12, 0.32], 'Track', 26, -26],
+    [52.8, 59.9, tubeDrones[0].g, [0, 0.08, 0], 'Switchblade 600', -30, -30],
+    [53.4, 59.9, tubeDrones[1].g, [0, 0.08, 0], 'Switchblade 300 ×3', 30, -26],
+    [54.2, 59.9, perch, [-0.55, 0.25, 0], 'Lift actuator', -30, 30],
+    [54.8, 59.9, canister, [-1.8, 0.22, -0.34], 'Launch tubes', 30, 26],
+    [62.4, 69.4, showDrone.g, [0.52, 0.03, 0], 'EO/IR camera', 26, -30],
+    [62.8, 69.4, showDrone.g, [0.24, 0.05, 0], 'Warhead', -10, -40],
+    [63.2, 69.4, showDrone.g, [-0.02, 0.03, 0], 'Battery', 22, 34],
+    [63.6, 69.4, showDrone.g, [-0.5, 0, 0], 'Motor + folding prop', -30, 30],
+    [65.0, 69.4, showDrone.g, [0.18, -0.07, 0.5], 'Front wings', 30, 24],
+    [65.4, 69.4, showDrone.g, [-0.33, 0.07, -0.5], 'Rear wings', -30, -26],
+    [65.8, 69.4, showDrone.g, [-0.42, 0.18, 0], 'Tail fins', -26, -34],
+  ];
+  const calloutRoot = document.getElementById('callouts');
+  const callouts = CALLOUTS.map(([t0, t1, obj, p, text, dx, dy]) => {
+    const el = document.createElement('div'); el.className = 'callout';
+    el.innerHTML = '<span class="line"></span><span class="dot"></span><span class="tag"></span>';
+    el.querySelector('.tag').textContent = text; calloutRoot.appendChild(el);
+    return { t0, t1, obj, p: V(...p), dx, dy, el, line: el.querySelector('.line'), tag: el.querySelector('.tag') };
+  });
+
+  // ---------------------------------------------------------------- state functions
+  const driveX = t => t < DRIVE_END ? -45 + 45 * easeOut(t / DRIVE_END) : 0;
+  const treadmill = t => { const a = 45.6, b = 50.8; if (t < a) return 0; const k = clamp((t - a) / (b - a)); return 2.6 * (b - a) * (k - (Math.sin(2 * PI * k) / (2 * PI))); };
+  const xrayAuto = t => { let x = 0; for (const [a, b, c, d] of XRAY) x = Math.max(x, pulse(t, a, b, c, d)); return x; };
+  const explodeK = t => pulse(t, 6.6, 8.1, 11.6, 13.0);
+  const perchRaise = t => Math.max(pulse(t, 54.0, 55.6, 70.6, 72.2), pulse(t, 77.4, 79.0, 106.2, 108.4));
+  const ALPHA_A = Math.atan2(-(SHEDS[0].p.z), SHEDS[0].p.x - TURRET_POS.x);
+  const turretYaw = t => pulse(t, 71.8, 73.6, 76.0, 77.3) * ALPHA_A;
+  const recoilK = t => { const k = (t - FIRE) / 0.06; if (k < 0) return 0; return k < 1 ? k : Math.exp(-(t - FIRE - 0.06) / 0.25); };
+  const hits = SHEDS.map((sh, j) => ({ t: j === 0 ? FIRE + SHELL_TIME : IMPACT[j - 1], power: j === 0 ? 1.3 : j === 4 ? 1.6 : 0.95, c: sh.p.clone().add(V(0, 1.2 * sh.s, 0)) }));
+
+  // ---------------------------------------------------------------- UI
+  const $ = id => document.getElementById(id);
+  const ui = { play: $('play'), playIcon: $('playIcon'), scrub: $('scrub'), time: $('time'), fill: $('fill'), xray: $('xray'), speed: $('speed'), cam: $('cam'), cap: $('caption'), capStep: $('capStep'), capText: $('capText'), modeTag: $('modeTag'), gStage: $('gStage'), gGun: $('gGun'), gVel: $('gVel'), dpips: $('dpips'), track: $('track'), pip: $('pip'), pipLbl: $('pipLbl'), pipLock: $('pipLock'), pipStatic: $('pipStatic') };
+  CAPTIONS.forEach(c => {
+    if (!c[2]) return;
+    const m = document.createElement('div'); m.className = 'seg' + (c[4] ? ' x' : '');
+    m.style.left = (c[0] / LOOP * 100) + '%'; m.style.width = ((c[1] - c[0]) / LOOP * 100) + '%';
+    ui.track.appendChild(m);
+  });
+  let videoMode = false;
+  let t = 0, playing = !reducedMotion, speed = 1, xMode = 'auto', camMode = 'director', xrayAmount = 0;
+  if (reducedMotion) t = 17;
+  const setPlayIcon = () => {
+    ui.play.setAttribute('aria-label', playing ? 'Pause' : 'Play');
+    ui.playIcon.innerHTML = playing ? '<rect x="1" y="1" width="3.5" height="10"/><rect x="7.5" y="1" width="3.5" height="10"/>' : '<path d="M2 1 L11 6 L2 11 Z"/>';
+  };
+  setPlayIcon();
+  ui.play.onclick = () => { playing = !playing; setPlayIcon(); };
+  ui.scrub.oninput = () => { t = ui.scrub.value / 1000 * LOOP; };
+  ui.xray.onclick = () => {
+    xMode = xMode === 'auto' ? 'on' : xMode === 'on' ? 'off' : 'auto';
+    ui.xray.textContent = 'X-ray: ' + xMode[0].toUpperCase() + xMode.slice(1);
+    ui.xray.setAttribute('aria-pressed', String(xMode === 'on'));
+  };
+  ui.speed.onclick = () => { speed = speed === 1 ? 0.5 : speed === 0.5 ? 0.25 : 1; ui.speed.textContent = (speed === 1 ? '1' : speed === 0.5 ? '½' : '¼') + '×'; };
+  const setCam = m => { camMode = m; ui.cam.textContent = 'Camera: ' + (m === 'free' ? 'Free' : 'Director'); ui.cam.setAttribute('aria-pressed', String(m === 'free')); };
+  ui.cam.onclick = () => setCam(camMode === 'free' ? 'director' : 'free');
+  document.addEventListener('keydown', e => {
+    if (e.target.tagName === 'INPUT' && e.code !== 'Space') return;
+    if (e.code === 'Space') { e.preventDefault(); ui.play.click(); }
+    if (e.key === 'x' || e.key === 'X') ui.xray.click();
+  });
+  const controls = new T.OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true; controls.dampingFactor = 0.08; controls.minDistance = 1; controls.maxDistance = 900;
+  controls.addEventListener('start', () => { if (camMode !== 'free') setCam('free'); });
+
+  const composer = new T.EffectComposer(renderer);
+  composer.addPass(new T.RenderPass(scene, camera));
+  const bloom = new T.UnrealBloomPass(new T.Vector2(1, 1), 0.5, 0.45, 0.82);
+  composer.addPass(bloom);
+  composer.addPass(new T.ShaderPass(T.GammaCorrectionShader));
+  const pipCam = new T.PerspectiveCamera(24, 1.6, 0.3, 3000);
+
+  function resize() {
+    const w = stage.clientWidth || window.innerWidth, h = stage.clientHeight || window.innerHeight;
+    renderer.setSize(w, h, false); composer.setSize(w, h);
+    camera.aspect = w / h;
+    if (videoMode) camera.setViewOffset(w, h, 0, -h * 0.07, w, h); else camera.clearViewOffset();
+    camera.updateProjectionMatrix();
+    bgMat.uniforms.uRes.value.set(w, h);
+  }
+  window.addEventListener('resize', resize); resize();
+
+  function camAt(time) {
+    let i = 0; while (i < CAM.length - 2 && CAM[i + 1].t <= time) i++;
+    const a = CAM[i], b = CAM[i + 1], k = smooth(span(time, a.t, b.t));
+    const ta = typeof a.tg === 'function' ? a.tg(time) : a.tg, tb = typeof b.tg === 'function' ? b.tg(time) : b.tg;
+    const fit = Math.max(1, (videoMode ? 1.55 : 1.45) / camera.aspect);
+    const sc = key => key.nf ? 1 : key.d > 20 ? fit : Math.sqrt(fit);   // narrow screens pull back for wide subjects only
+    return { tg: [lerp(ta[0], tb[0], k), lerp(ta[1], tb[1], k), lerp(ta[2], tb[2], k)], az: lerp(a.az, b.az, k), el: lerp(a.el, b.el, k), d: lerp(a.d * sc(a), b.d * sc(b), k) };
+  }
+
+  // ---------------------------------------------------------------- per-frame update
+  const v3 = V(0, 0, 0), tmp = V(0, 0, 0);
+  let lastCap = -1, pipState = null;
+  function update(t, wall) {
+    if (!paths) buildPaths();
+    // drive in, track and wheel motion
+    tank.position.x = driveX(t);
+    const trackOffset = tank.position.x + 45 + treadmill(t);
+    setTrack(trackOffset);
+    wheels.forEach(({ w, r }) => { w.rotation.z = -trackOffset / r; });
+    const kick = recoilK(t);
+    tank.rotation.z = -0.012 * kick * (t > FIRE ? Math.cos((t - FIRE) * 14) : 1);
+    tankShadow.position.x = tank.position.x;
+
+    // exploded view
+    const ex = explodeK(t);
+    turret.position.y = TURRET_POS.y + 2.6 * ex;
+    perch.position.y = PERCH_POS.y + 0.7 * ex; perch.position.z = PERCH_POS.z - 0.7 * ex;
+    skirts.forEach((g, i) => { g.position.z = (i ? -1 : 1) * (1.86 + 1.3 * ex); });
+
+    // turret, gun, autoloader, remote weapon station
+    turret.rotation.y = turretYaw(t);
+    gunPivot.rotation.z = pulse(t, 71.8, 73.6, 76.0, 77.3) * 0.012;
+    gun.position.x = -0.45 * kick;
+    const ram = span(t, 24.2, 26.2), ramPath = smooth(ram);
+    ramRound.visible = t >= 24.2 && t < FIRE;
+    rounds[RAM_SLOT].visible = !(t >= 24.2 && t < LOOP - 0.5);
+    if (ramRound.visible) {
+      const start = V(AL_X, 0.52, -1.28 + RAM_SLOT * 0.32), lift = V(-1.1, 0.42, 0), end = V(1.35 - 0.7, 0.42, 0);
+      if (ramPath < 0.35) ramRound.position.lerpVectors(start, lift, smooth(ramPath / 0.35));
+      else ramRound.position.lerpVectors(lift, end, smooth((ramPath - 0.35) / 0.65));
+      if (t > 26.2) ramRound.position.copy(end);
+    }
+    rammer.visible = ram > 0 && ram < 1;
+    rammer.position.set(ramRound.position.x - 0.7, ramRound.position.y, ramRound.position.z);
+    rcws.rotation.y = 2 * PI * smooth(span(t, 32.0, 36.8));
+    rcwsPitch.rotation.z = Math.sin(clamp((t - 32) / 4.8) * PI * 2) * 0.25;
+
+    // PERCH canister + actuator
+    const raise = perchRaise(t);
+    canister.rotation.z = -0.95 * raise;
+    canister.updateMatrix();
+    const top = ACT_TOP.clone().applyMatrix4(canister.matrix);
+    const dirA = top.clone().sub(ACT_BASE), lenA = dirA.length();
+    const q = new T.Quaternion().setFromUnitVectors(V(0, 1, 0), dirA.clone().normalize());
+    actuator.barrel.position.copy(ACT_BASE).addScaledVector(dirA, 0.3); actuator.barrel.quaternion.copy(q); actuator.barrel.scale.set(1, lenA * 0.6, 1);
+    actuator.rod.position.copy(ACT_BASE).addScaledVector(dirA, 0.7); actuator.rod.quaternion.copy(q); actuator.rod.scale.set(1, lenA * 0.6, 1);
+
+    tank.updateMatrixWorld(true);
+
+    // showcase drone (slides out of tube 1, unfolds, slides back)
+    const showOn = t >= 60.0 && t < 70.4;
+    showDrone.g.visible = showOn;
+    tubeDrones[1].g.visible = !showOn && !(t >= LAUNCH[1]);
+    const clutter = !(t >= 60.4 && t < 70.3);
+    capsule.visible = power.visible = autoloader.visible = clutter;
+    if (!clutter) ramRound.visible = false;
+    if (showOn) {
+      const tb = TUBES[1];
+      const muz = canister.localToWorld(V(-1.85, tb.y, tb.z)), inTube = canister.localToWorld(V(-1.8 + 0.08 + 0.32, tb.y, tb.z));
+      const axis = muz.clone().sub(inTube).normalize();
+      const out = muz.clone().addScaledVector(axis, 0.9);
+      const disp = out.clone().add(V(0.25, 0.25, -0.75));
+      const k1 = smooth(span(t, 60.0, 61.4)), k2 = smooth(span(t, 61.4, 62.4)), kb = smooth(span(t, 68.9, 69.6)), kin = smooth(span(t, 69.6, 70.4));
+      const p = inTube.clone().lerp(out, k1).lerp(disp, k2 * (1 - kb));
+      if (kb >= 1) p.copy(out).lerp(inTube, kin);
+      showDrone.g.position.copy(p);
+      const qa = new T.Quaternion(); orient(showDrone.g, axis, 0); qa.copy(showDrone.g.quaternion);
+      orient(showDrone.g, V(1, 0, 0), 0); const qb = showDrone.g.quaternion.clone();
+      showDrone.g.quaternion.copy(qa).slerp(qb, k2 * (1 - kb));
+      const unfold = pulse(t, 63.4, 66.4, 67.6, 68.8);
+      showDrone.set(unfold, smooth(span(t, 63.2, 63.6)) * (1 - smooth(span(t, 68.4, 68.8))), smooth(span(t, 66.0, 66.8)) * (1 - smooth(span(t, 67.4, 67.8))), t > 66.6 && t < 67.4 ? (t - 66.6) * 60 : 0);
+    }
+
+    // drones: tube occupancy, caps, flight
+    let pipDrone = -1;
+    const dstates = [];
+    const pips = ui.dpips.children;
+    TUBES.forEach((tb, i) => {
+      const launched = t >= LAUNCH[i] && t < LOOP - 0.1;
+      if (i !== 1) tubeDrones[i].g.visible = !launched;
+      const ct = t - LAUNCH[i] + 0.05;
+      if (ct > 0 && launched) {
+        const fly = Math.min(ct, 1.6);
+        tb.cap.position.set(-1.8 - fly * 6, tb.y + fly * 2 - fly * fly * 4, tb.z + (i % 2 ? 1 : -1) * fly * 1.5);
+        tb.cap.rotation.set(fly * 9, fly * 5, 0); tb.cap.visible = ct < 1.6;
+      } else { tb.cap.position.set(-1.8, tb.y, tb.z); tb.cap.rotation.set(0, 0, 0); tb.cap.visible = true; }
+      const d = flyDrones[i], st = droneState(i, t);
+      d.g.visible = !!st;
+      if (st) {
+        d.g.position.copy(st.pos);
+        let roll = 0;
+        if (st.phase === 'loiter') roll = 0.45;
+        else { const a = droneState(i, t + 0.15); if (a) { const h0 = Math.atan2(st.tan.z, st.tan.x), h1 = Math.atan2(a.tan.z, a.tan.x); let dh = h1 - h0; dh = Math.atan2(Math.sin(dh), Math.cos(dh)); roll = clamp(dh * 3, -0.6, 0.6); } }
+        orient(d.g, st.tan, roll);
+        d.set(smooth(span(st.tau, 0.12, 0.45)), smooth(span(st.tau, 0.06, 0.2)), smooth(span(st.tau, 0.28, 0.55)), st.tau > 0.5 ? wall * 90 : 0);
+      }
+      dstates[i] = st;
+      const done = t >= IMPACT[i];
+      pips[i].className = (i === 3 ? 'big ' : '') + (done && t < LOOP - 0.1 ? 'done' : st ? 'fly' : '');
+    });
+    // which drone feeds the picture-in-picture camera
+    if (t >= 87.5 && t < IMPACT[3] + 0.6) { for (let i = 0; i < 4; i++) if (t < IMPACT[i] + 0.5) { pipDrone = i; break; } }
+
+    // main gun: muzzle blast + tracer
+    const bt = t - FIRE;
+    const blastI = bt > 0 ? Math.exp(-bt / 0.12) : 0;
+    muzzle.visible = blastI > 0.01;
+    blastCore.visible = blastI > 0.01; blastCore.scale.setScalar(3 + 8 * (1 - blastI)); blastCore.material.opacity = blastI;
+    blastPetals.forEach(m => m.scale.set(4 + 9 * (1 - blastI), 1.5 + 3 * (1 - blastI), 1)); sideJets.forEach(m => m.scale.set(2.5 + 3 * (1 - blastI), 1.2, 1));
+    blastMat.opacity = blastI;
+    tracer.visible = bt > 0 && bt < SHELL_TIME;
+    if (tracer.visible) {
+      const from = gun.localToWorld(MUZZLE.clone()), to = hits[0].c, k = bt / SHELL_TIME;
+      tracer.position.lerpVectors(from, to, k); tracer.lookAt(to); tracer.rotateY(-PI / 2); tracer.scale.set(14, 1, 1);
+    }
+    let flashI = blastI, flashPos = gun.localToWorld(MUZZLE.clone());
+    // launch flashes
+    let lf = 0;
+    LAUNCH.forEach((L, i) => { const k = t - L; if (k > 0 && k < 0.4) { const e = Math.exp(-k / 0.08); if (e > lf) { lf = e; launchFlash.position.copy(paths[i].muz); } } });
+    launchFlash.visible = lf > 0.02; launchFlash.scale.setScalar(0.8 + 1.5 * (1 - lf)); launchFlash.material.opacity = lf * 0.8;
+
+    // shed destruction (each board flies on its own deterministic arc)
+    boards.forEach((b, i) => {
+      const h = hits[b.j], sh = SHEDS[b.j], tau = t - h.t;
+      const rest = b.pos.clone().add(sh.p);
+      let pos = rest, rot = b.rot;
+      if (tau > 0) {
+        const dir = rest.clone().sub(h.c).add(V(0, 1.2, 0)).normalize();
+        const sp = (7 + rand(i, 1) * 12) * h.power;
+        const vel = dir.multiplyScalar(sp).add(V((rand(i, 2) - 0.5) * 4, 4 * h.power, (rand(i, 3) - 0.5) * 4));
+        const g = 9.8, y0 = rest.y, ground = 0.08;
+        const tl = (vel.y + Math.sqrt(vel.y * vel.y + 2 * g * (y0 - ground))) / g;
+        const tt = Math.min(tau, tl);
+        pos = V(rest.x + vel.x * tt, Math.max(ground, y0 + vel.y * tt - 0.5 * g * tt * tt), rest.z + vel.z * tt);
+        rot = new T.Euler(b.rot.x + (rand(i, 4) - 0.5) * 14 * tt, (rand(i, 5) - 0.5) * 10 * tt, (rand(i, 6) - 0.5) * 14 * tt);
+        if (tau >= tl) rot = new T.Euler(PI / 2 * Math.round(rot.x / (PI / 2)), rot.y, PI / 2 * Math.round(rot.z / (PI / 2)));
+      }
+      _m.compose(pos, _q.setFromEuler(rot), b.size); boardMesh.setMatrixAt(i, _m);
+    });
+    boardMesh.instanceMatrix.needsUpdate = true;
+
+    // explosions, fire, sparks
+    let lightI = 0, lightP = null;
+    hits.forEach((h, j) => {
+      const E = explosions[j], tau = t - h.t, on = tau > 0;
+      const f = on ? Math.exp(-tau / 0.35) : 0;
+      E.flash.visible = f > 0.01; E.flash.position.copy(h.c).add(V(0, 1.5, 0)); E.flash.scale.setScalar((10 + 26 * (1 - f)) * h.power); E.flash.material.opacity = f;
+      if (f * 8 > lightI) { lightI = f * 8; lightP = E.flash.position; }
+      E.shock.visible = on && tau < 1.6; E.shock.position.set(h.c.x, 0.15, h.c.z); E.shock.scale.setScalar(1 + easeOut(tau / 1.6) * 40 * h.power); E.shock.material.opacity = 0.16 * (1 - clamp(tau / 1.6));
+      E.scorch.visible = on; E.scorch.position.set(h.c.x, 0.04, h.c.z); E.scorch.scale.setScalar(3.2 * h.power * SHEDS[j].s); E.scorch.material.opacity = 0.55;
+      E.fire.forEach((s, k) => {
+        const life = on ? clamp(1 - (tau - 6) / 10) : 0;
+        s.visible = on && life > 0;
+        if (!s.visible) return;
+        const fl = 0.7 + 0.3 * Math.sin(wall * 13 + k * 2.1) * Math.sin(wall * 7.3 + k);
+        s.position.set(h.c.x + (rand(j, k) - 0.5) * 3, 0.8 + rand(j, k + 5) * 1.5 + fl * 0.4, h.c.z + (rand(j, k + 9) - 0.5) * 3);
+        s.scale.setScalar((2.2 + rand(j, k + 2) * 1.5) * fl * (0.4 + 0.6 * Math.max(life, Math.exp(-tau / 1.2))));
+        s.material.opacity = 0.75 * fl * life;
+      });
+      E.sparks.forEach((s, k) => {
+        const kk = tau / 1.4; s.visible = on && kk < 1;
+        if (!s.visible) return;
+        const a = rand(j * 20 + k, 1) * 2 * PI, up = 0.3 + rand(j * 20 + k, 2), sp = (14 + rand(j * 20 + k, 3) * 18) * h.power, e = easeOut(kk);
+        s.position.set(h.c.x + Math.cos(a) * sp * e, h.c.y + up * sp * 0.7 * e - kk * kk * 12, h.c.z + Math.sin(a) * sp * e);
+        s.scale.setScalar(0.9 * (1 - kk)); s.material.opacity = 1 - kk;
+      });
+    });
+    if (flashI * 10 > lightI) { lightI = flashI * 10; lightP = flashPos; }
+    flashLight.intensity = lightI; if (lightP) flashLight.position.copy(lightP);
+
+    // smoke: drive dust, muzzle blast, launch puffs, explosion clouds, smoke columns
+    let si = 0;
+    const puff = (x, y, z, scale, op, rot, col) => {
+      if (si >= smokePool.length || op <= 0.003) return;
+      const s = smokePool[si++]; s.visible = true; s.position.set(x, y, z); s.scale.setScalar(scale); s.material.opacity = op; s.material.rotation = rot; s.material.color.setHex(col);
+    };
+    for (let p = 0; p < 22; p++) {
+      const birth = p * 0.27, age = (t - birth) / 2.6; if (age <= 0 || age >= 1 || birth > DRIVE_END - 0.6) continue;
+      const x = driveX(birth) - 4.2, s = p % 2 ? 1 : -1;
+      puff(x - age * 2, 0.4 + age * 1.6, s * 1.6 + s * age * 1.2, 1 + age * 4, 0.3 * Math.pow(1 - age, 1.5) * Math.min(1, age * 8), rand(p, 1) * 6, 0x9a8c72);
+    }
+    const mz = gun.localToWorld(MUZZLE.clone()), mdir = gun.localToWorld(V(7, 0, 0)).sub(mz).normalize();
+    for (let p = 0; p < 18; p++) {
+      const age = (t - FIRE - p * 0.01) / (3.5 + rand(p, 1) * 2); if (age <= 0 || age >= 1) continue;
+      const dist = (1 - Math.exp(-age * 5)) * (3 + p * 0.6), a = rand(p, 2) * 2 * PI;
+      puff(mz.x + mdir.x * dist + Math.cos(a) * dist * 0.3, mz.y + age * 2 + Math.sin(a) * dist * 0.15, mz.z + mdir.z * dist + Math.sin(a) * dist * 0.4, 1.5 + age * 7, 0.42 * Math.pow(1 - age, 1.4) * Math.min(1, age * 14), rand(p, 3) * 6, 0xa4a6a8);
+    }
+    for (let p = 0; p < 14; p++) {
+      const age = (t - FIRE - p * 0.02) / (2.6 + rand(p, 4)); if (age <= 0 || age >= 1) continue;
+      const a = rand(p, 5) * 2 * PI, dist = (1 - Math.exp(-age * 4)) * (4 + rand(p, 6) * 4);
+      puff(tank.position.x + 4 + Math.cos(a) * dist, 0.5 + age, Math.sin(a) * dist, 1 + age * 4, 0.28 * Math.pow(1 - age, 1.5) * Math.min(1, age * 10), rand(p, 7) * 6, 0x9a8c72);
+    }
+    LAUNCH.forEach((L, i) => {
+      for (let p = 0; p < 6; p++) {
+        const age = (t - L - p * 0.03) / (2.2 + rand(i, p)); if (age <= 0 || age >= 1) continue;
+        const P = paths[i], dist = (1 - Math.exp(-age * 4)) * (0.8 + p * 0.3);
+        puff(P.muz.x + P.axis.x * dist, P.muz.y + P.axis.y * dist + age * 1.5, P.muz.z + P.axis.z * dist + (rand(i, p + 7) - 0.5) * age * 2, 0.5 + age * 2.6, 0.5 * Math.pow(1 - age, 1.5) * Math.min(1, age * 14), rand(i, p + 3) * 6, 0xd4d6d8);
+      }
+    });
+    hits.forEach((h, j) => {
+      const tau = t - h.t; if (tau <= 0) return;
+      for (let p = 0; p < 12; p++) {
+        const age = (tau - p * 0.02) / (3.5 + rand(j, p + 20) * 2); if (age <= 0 || age >= 1) continue;
+        const a = rand(j, p + 30) * 2 * PI, dist = (1 - Math.exp(-age * 4)) * (5 + p * 0.5) * h.power;
+        puff(h.c.x + Math.cos(a) * dist, 1 + rand(j, p) * 8 * age + age * 7 * h.power, h.c.z + Math.sin(a) * dist, (4 + age * 14) * h.power, 0.55 * Math.pow(1 - age, 1.3) * Math.min(1, age * 14), rand(j, p + 40) * 6, p % 3 ? 0x5b5048 : 0x3c3a38);
+      }
+      for (let p = 0; p < 8; p++) {
+        const life = 7, ph = tau - p * (life / 8); if (ph < 0) continue;
+        const age = (ph % life) / life, fade = clamp(1 - (tau - 22) / 6);
+        puff(h.c.x + age * 10 + (rand(j, p) - 0.5) * 2, 2 + age * 32, h.c.z + age * 4, (3 + age * 12) * Math.min(1.3, h.power), 0.45 * Math.sin(PI * age) * fade, rand(j, p + 50) * 6, 0x3e3c3a);
+      }
+    });
+    for (; si < smokePool.length; si++) smokePool[si].visible = false;
+
+    // powertrain: energy flow, battery glow, fans
+    const pw = pulse(t, 38.0, 39.0, 44.6, 45.4);
+    flowTex.offset.x = -wall * 1.5; flowMat.opacity = pw;
+    cables.forEach(c => { c.visible = pw > 0.01; });
+    battMat.emissive.setRGB(0.05 * pw, 0.5 * pw * (0.7 + 0.3 * Math.sin(wall * 4)), 0.3 * pw);
+    fans.forEach(f => { f.rotation.y = wall * 8; });
+
+    // x-ray blend with per-system focus
+    const xr = xMode === 'on' ? 1 : xMode === 'off' ? 0 : xrayAuto(t);
+    xrayAmount += (xr - xrayAmount) * (xMode === 'auto' ? 1 : 0.15);
+    const X = xrayAmount;
+    const focus = FOCUS.find(f => t >= f[0] && t < f[1]);
+    bgMat.uniforms.uX.value = X;
+    xrayMats.forEach(mm => {
+      const tag = mm.userData.tag, isF = !focus || focus[2].includes(tag);
+      let o = X * (isF ? 1 : 0.32);
+      if (tag === 'capsule') o = X * (focus && focus[2].includes('capsule') ? 1 : 0.15);
+      mm.uniforms.uOpacity.value = o;
+    });
+    shells.forEach(({ solid, ghost }) => { ghost.visible = X > 0.005; solid.visible = X < 0.995; });
+    fadeMats.forEach(mt => { mt.transparent = X > 0.005; mt.opacity = 1 - X; mt.depthWrite = X < 0.5; });
+    envMats.forEach(mt => { mt.transparent = X > 0.005; mt.opacity = 1 - 0.9 * X; mt.depthWrite = X < 0.5; });
+    internals.forEach(mm => { mm.visible = X > 0.005; });
+    scene.fog.color.copy(HORIZON).lerp(XRAY_FOG, X);
+    shadowMat.opacity = 1 - X;
+    ui.modeTag.classList.toggle('on', X > 0.5);
+    bloom.strength = 0.5 - 0.2 * X;
+
+    // camera
+    if (camMode === 'director') {
+      const c = camAt(t), d = c.d;
+      const target = v3.set(...c.tg);
+      const shake = reducedMotion ? 0 : (blastI * 0.25 + lightI * 0.01) * Math.min(1, d / 30);
+      camera.position.set(
+        target.x + d * Math.sin(c.az) * Math.cos(c.el) + (rand(wall, 1) - 0.5) * shake,
+        Math.max(0.6, target.y + d * Math.sin(c.el)) + (rand(wall, 2) - 0.5) * shake,
+        target.z + d * Math.cos(c.az) * Math.cos(c.el));
+      camera.lookAt(target);
+      controls.target.copy(target);
+    } else controls.update();
+    const camDist = camera.position.distanceTo(controls.target);
+    camera.near = Math.max(0.05, camDist * 0.25); camera.far = camDist * 8 + 2600;
+    camera.updateProjectionMatrix();
+    camera.updateMatrixWorld();
+
+    // drone markers and trails (need this frame's camera)
+    dstates.forEach((st, i) => {
+      const mk = markers[i], tr = trails[i];
+      mk.visible = tr.visible = !!st;
+      if (!st) return;
+      const dist = camera.position.distanceTo(st.pos), far = clamp((dist - 30) / 50);
+      mk.position.copy(st.pos); mk.scale.setScalar(Math.max(0.5, dist * 0.014)); mk.material.opacity = far * (0.75 + 0.25 * Math.sin(wall * 6 + i));
+      mk.visible = far > 0.01;
+      const arr = tr.geometry.attributes.position.array; let n = 0;
+      for (let k = 0; k < TRAIL_N; k++) { const ps = droneState(i, t - k * 0.1); if (!ps) break; arr[n * 3] = ps.pos.x; arr[n * 3 + 1] = ps.pos.y; arr[n * 3 + 2] = ps.pos.z; n++; }
+      tr.geometry.setDrawRange(0, n); tr.geometry.attributes.position.needsUpdate = true;
+      tr.visible = n > 1 && far > 0.01;
+    });
+
+    // callouts
+    const W2 = stage.clientWidth || innerWidth, H2 = stage.clientHeight || innerHeight;
+    const capR = ui.cap.getBoundingClientRect(), gR = document.querySelector('.gauges').getBoundingClientRect();
+    const band = videoMode ? [capR.bottom + 8, gR.top - 8] : [gR.bottom + 8, capR.top - 8];
+    callouts.forEach(c => {
+      const vis = pulse(t, c.t0, c.t0 + 0.35, c.t1 - 0.3, c.t1);
+      if (vis <= 0.01) { c.el.style.opacity = 0; return; }
+      c.obj.updateMatrixWorld(true);
+      tmp.copy(c.p); c.obj.localToWorld(tmp);
+      const pr = tmp.clone().project(camera);
+      if (pr.z > 1 || Math.abs(pr.x) > 1.2 || Math.abs(pr.y) > 1.2) { c.el.style.opacity = 0; return; }
+      const x = (pr.x * 0.5 + 0.5) * W2, y = (-pr.y * 0.5 + 0.5) * H2;
+      c.el.style.opacity = vis;
+      c.el.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`;
+      // keep the tag on screen and inside the band not used by the caption / readouts
+      const w = c.tag.offsetWidth, h = c.tag.offsetHeight;
+      let left = x + c.dx - (c.dx < 0 ? w : c.dx === 0 ? w / 2 : 0), top = y + c.dy - h / 2;
+      left = clamp(left, 8, W2 - w - 8); top = clamp(top, band[0], Math.max(band[0], band[1] - h));
+      const ex = clamp(x, left, left + w) - x, ey = top + h / 2 - y;
+      c.line.style.width = Math.hypot(ex, ey) + 'px'; c.line.style.transform = `rotate(${Math.atan2(ey, ex)}rad)`;
+      c.tag.style.transform = `translate(${(left - x).toFixed(1)}px, ${(top - y).toFixed(1)}px)`;
+      c.el.classList.toggle('x', X > 0.5);
+    });
+
+    // HUD
+    const seg = SEG.find(s => t >= s[0] && t < s[1]) || SEG[0];
+    ui.gStage.textContent = seg[2];
+    ui.gGun.textContent = t >= FIRE && t < FIRE + 2.5 ? 'Fired' : t >= FIRE + 2.5 && t < FIRE + 6 ? 'Reloading' : 'Ready';
+    let kmh = 0;
+    if (pipDrone >= 0) { const st = droneState(pipDrone, t); if (st) kmh = st.kmh; }
+    else { for (let i = 0; i < 4; i++) { const st = droneState(i, t); if (st) { kmh = st.kmh; break; } } }
+    ui.gVel.textContent = Math.round(kmh) + ' km/h';
+    let ci = CAPTIONS.findIndex(c => t >= c[0] && t < c[1]); if (ci < 0) ci = 0;
+    if (ci !== lastCap) {
+      lastCap = ci; const c = CAPTIONS[ci];
+      const apply = () => { ui.capStep.textContent = c[2]; ui.capStep.className = 'step' + (c[4] ? ' x' : ''); ui.capText.textContent = c[3]; ui.cap.classList.remove('swap'); };
+      if (videoMode) apply(); else { ui.cap.classList.add('swap'); setTimeout(apply, 180); }
+    }
+    ui.fill.style.width = (t / LOOP * 100) + '%';
+    if (document.activeElement !== ui.scrub) ui.scrub.value = Math.round(t / LOOP * 1000);
+    ui.time.textContent = t.toFixed(1) + ' / ' + LOOP + ' s';
+
+    // drone camera picture-in-picture
+    pipState = null;
+    ui.pip.hidden = pipDrone < 0;
+    if (pipDrone >= 0) {
+      const i = pipDrone, lost = t >= IMPACT[i];
+      ui.pipLbl.textContent = (i === 3 ? 'Switchblade 600' : 'Switchblade 300') + ' · #' + (i + 1) + ' · EO';
+      const locked = !lost && droneState(i, t) && t > paths[i].enter - 2.5;
+      ui.pipLock.textContent = lost ? 'Signal lost' : locked ? (droneState(i, t).phase === 'dive' ? 'Diving' : 'Target locked') : 'Searching';
+      ui.pipStatic.hidden = !lost;
+      if (lost) {
+        const cx = ui.pipStatic.getContext('2d'), img = cx.createImageData(96, 60);
+        for (let k = 0; k < img.data.length; k += 4) { const v = rand(k, Math.floor(t * 30)) * 255; img.data[k] = img.data[k + 1] = img.data[k + 2] = v; img.data[k + 3] = 255; }
+        cx.putImageData(img, 0, 0);
+      } else {
+        const d = flyDrones[i].g;
+        pipCam.position.copy(d.localToWorld(V(0.62, -0.02, 0)));
+        const tg = paths[i].target.clone(); tg.y = 1.2;
+        pipCam.lookAt(tg);
+        pipState = { hide: d };
+      }
+    }
+  }
+
+  function render() {
+    composer.render();
+    if (pipState) {
+      const r = ui.pip.getBoundingClientRect(), H = stage.clientHeight || innerHeight;
+      pipCam.aspect = r.width / r.height; pipCam.updateProjectionMatrix();
+      pipState.hide.visible = false;
+      const keepEnc = renderer.outputEncoding;
+      renderer.outputEncoding = T.sRGBEncoding;
+      renderer.setRenderTarget(null);
+      renderer.setScissorTest(true);
+      renderer.setScissor(r.left, H - r.bottom, r.width, r.height);
+      renderer.setViewport(r.left, H - r.bottom, r.width, r.height);
+      renderer.autoClear = true;
+      renderer.render(scene, pipCam);
+      renderer.setScissorTest(false);
+      renderer.setViewport(0, 0, stage.clientWidth || innerWidth, H);
+      renderer.outputEncoding = keepEnc;
+      pipState.hide.visible = true;
+    }
+  }
+
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.min(0.05, (now - last) / 1000); last = now;
+    if (!videoMode) {
+      if (playing) t = (t + dt * speed) % LOOP;
+      update(t, now / 1000);
+      render();
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+  window.__seek = (time, opts = {}) => { playing = false; setPlayIcon(); t = time; if (opts.x) xMode = opts.x; update(t, videoMode ? time : 0); render(); };
+  window.__video = (dpr = 3) => {
+    videoMode = true; document.body.classList.add('video');
+    renderer.setPixelRatio(dpr); composer.setPixelRatio(dpr); resize();
+  };
+})();
+</script>

@@ -26,3 +26,14 @@ Open `revolver.html` in a browser. Libraries load from cdnjs and jsDelivr.
 # Mortar Trajectory X-Ray
 
 `mortar.html` follows one 81 mm mortar round on a 36-second loop: drop and firing in x-ray (firing pin, ignition cartridge, propellant charges, obturating band), launch, the full ballistic arc drawn live with range markers and readouts (altitude, speed, range, time of flight), a second x-ray pass on the fuze during descent, and the impact. The readouts use vacuum ballistics at 200 m/s and 60°. `mortar-short.mp4` is the 1080×1920 Shorts render.
+
+# Abrams Drone Tank
+
+`tank.html` is our own AbramsX-style tank with a PERCH drone launcher, on a 114-second loop:
+
+- **Breakdown:** an exploded view, then x-ray passes through the three-person crew capsule in the front hull, the unmanned turret and its cassette autoloader, the turret roof (30 mm remote cannon, sights, active protection), the hybrid diesel-electric drive, and the running gear.
+- **PERCH:** sits folded on the turret roof (rear left) and carries three Switchblade 300s and one Switchblade 600.
+- **Switchblade close-up:** folded wings, fins and propeller, and how they deploy.
+- **Demo:** the 120 mm gun destroys one shed, then four drones launch, loiter with a drone-camera view, and each destroys its own shed.
+
+`tank-short.mp4` is the 1080×1920 Shorts render.
