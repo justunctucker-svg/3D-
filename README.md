@@ -22,3 +22,7 @@ Open `revolver.html` in a browser. Libraries load from cdnjs and jsDelivr.
 3. A real-time launch seen from behind the shooter.
 
 `rpg7-short.mp4` is the matching 1080×1920 YouTube Shorts render with synthesized sound. `revolver-short.mp4` is the same for the revolver.
+
+# Mortar Trajectory X-Ray
+
+`mortar.html` follows one 81 mm mortar round on a 36-second loop: drop and firing in x-ray (firing pin, ignition cartridge, propellant charges, obturating band), launch, the full ballistic arc drawn live with range markers and readouts (altitude, speed, range, time of flight), a second x-ray pass on the fuze during descent, and the impact. The readouts use vacuum ballistics at 200 m/s and 60°. `mortar-short.mp4` is the 1080×1920 Shorts render.
