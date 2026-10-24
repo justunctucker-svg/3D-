@@ -108,3 +108,14 @@ Open `revolver.html` in a browser. Libraries load from cdnjs and jsDelivr.
   4. the rotating bolt unlocks, the case ejects, and the spring feeds the next round
 
 `ak47-short.mp4` is the 1080×1920 Shorts render.
+
+# Fire FX: Molotov and Napalm
+
+`fire.html` rebuilds our fire using the technique from the supplied fire reference. Flames are made of layered tongue meshes in three layers: an orange outer, a gold inner and a pale core. Scrolling 3D noise drives their opacity, and the tips bend and lick. Around them are flickering point lights, embers, and noise-edged soot smoke lit from below. The flames are graded white-yellow at the base and deep red at the tips, so they don't blow out to white.
+
+It runs on a 20-second loop at dusk:
+
+- **Molotov:** a thrown bottle (slow-motion shatter and fuel spray) produces a vapour whoosh, a spreading pool fire and burning crates.
+- **Napalm:** a jet drops two canisters on a base. A rolling wall of fire runs along a 125 m swath, followed by a long, smoky burn.
+
+`fire-short.mp4` is the 1080×1920 Shorts render.
