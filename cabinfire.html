@@ -1,0 +1,803 @@
+<title>Cabin Fire</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  /* Layout: full-bleed WebGL stage; title + gauges in the top corners, caption and transport bar along the bottom edge */
+  :root {
+    --ink: #0a0b0d;
+    --panel: rgba(14, 16, 19, 0.72);
+    --line: rgba(196, 210, 222, 0.16);
+    --fg: #e8ecef;
+    --muted: #8c959e;
+    --xray: #74d4ff;
+    --flash: #ffb24a;
+    --display: "Barlow Condensed", "Arial Narrow", "Helvetica Neue", sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+    color-scheme: dark;
+  }
+  html, body { height: 100%; }
+  body {
+    background: var(--ink);
+    color: var(--fg);
+    font-family: var(--mono);
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+  #stage { position: fixed; inset: 0; }
+  #stage canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+  #stage canvas:active { cursor: grabbing; }
+
+  .hud {
+    position: fixed; inset: 0;
+    pointer-events: none;
+    display: flex; flex-direction: column; justify-content: space-between; gap: 16px;
+    padding-block: max(16px, env(safe-area-inset-top, 0px)) max(14px, env(safe-area-inset-bottom, 0px));
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+  }
+  .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+  .brand h1 {
+    margin: 0;
+    font-family: var(--display); font-weight: 700;
+    font-size: clamp(22px, 3.2vw, 34px); line-height: 0.95;
+    letter-spacing: 0.02em; text-transform: uppercase;
+  }
+  .brand p {
+    margin: 6px 0 0; color: var(--muted);
+    font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase;
+  }
+  .mode {
+    display: inline-block; margin-top: 10px; padding: 3px 8px;
+    border: 1px solid var(--xray); color: var(--xray);
+    font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase;
+    opacity: 0; transition: opacity .3s;
+  }
+  .mode.on { opacity: 1; }
+
+  .gauges {
+    display: grid; grid-template-columns: auto auto; column-gap: 14px; row-gap: 5px;
+    padding: 10px 12px; background: var(--panel); border: 1px solid var(--line);
+    font-size: 11px; font-variant-numeric: tabular-nums;
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  }
+  .gauges dt { color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; font-size: 10px; align-self: center; }
+  .gauges dd { margin: 0; text-align: right; min-width: 9ch; }
+  .pips { display: inline-flex; gap: 4px; vertical-align: middle; }
+  .pips i { width: 8px; height: 8px; border-radius: 50%; border: 1px solid #c9a24f; background: #c9a24f; }
+  .pips i.spent { background: transparent; border-color: #6a5a3a; }
+  .pips i.empty { background: transparent; border-color: #3a3f45; }
+
+  .bottom { display: flex; flex-direction: column; gap: 12px; }
+  .caption { max-width: 46ch; min-height: 92px; display: flex; flex-direction: column; justify-content: flex-end; }
+  .caption .step {
+    font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--flash);
+    min-height: 1.3em;
+  }
+  .caption .step.x { color: var(--xray); }
+  .caption .text {
+    margin: 4px 0 0;
+    font-family: var(--display); font-weight: 600;
+    font-size: clamp(19px, 2.4vw, 27px); line-height: 1.12; text-wrap: balance;
+    text-shadow: 0 1px 12px rgba(0,0,0,.6);
+  }
+  .caption > * { transition: opacity .25s; }
+  .caption.swap > * { opacity: 0; }
+
+  .transport {
+    pointer-events: auto;
+    display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px;
+    padding: 8px 10px; background: var(--panel); border: 1px solid var(--line);
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  }
+  .transport button {
+    font: 500 11px/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--fg); background: transparent; border: 1px solid var(--line);
+    padding: 8px 10px; min-height: 32px; cursor: pointer; white-space: nowrap;
+  }
+  .transport button:hover { border-color: var(--muted); }
+  .transport button:focus-visible, .scrub input:focus-visible { outline: 2px solid var(--xray); outline-offset: 2px; }
+  .transport button[aria-pressed="true"] { border-color: var(--xray); color: var(--xray); }
+  #play { width: 40px; padding: 0; display: grid; place-items: center; }
+  #play svg { width: 12px; height: 12px; fill: currentColor; }
+  .scrub { flex: 1 1 220px; min-width: 0; position: relative; height: 32px; display: flex; align-items: center; }
+  .scrub input { width: 100%; margin: 0; appearance: none; -webkit-appearance: none; background: transparent; height: 32px; position: relative; z-index: 1; cursor: pointer; }
+  .scrub input::-webkit-slider-runnable-track { height: 2px; background: transparent; }
+  .scrub input::-moz-range-track { height: 2px; background: transparent; }
+  .scrub input::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 12px; margin-top: -5px; border-radius: 50%; background: var(--fg); border: 0; }
+  .scrub input::-moz-range-thumb { width: 12px; height: 12px; border-radius: 50%; background: var(--fg); border: 0; }
+  .track { position: absolute; left: 6px; right: 6px; top: 15px; height: 2px; background: var(--line); }
+  .track .fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--muted); }
+  .track .seg { position: absolute; top: -3px; height: 8px; border-left: 1px solid var(--muted); }
+  .track .seg.x { background: rgba(116, 212, 255, 0.18); border-left-color: var(--xray); }
+  .time { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 9ch; text-align: right; }
+  .hint { font-size: 10px; color: var(--muted); letter-spacing: 0.08em; }
+
+  /* Shorts recording layout (9:16): keeps text clear of the YouTube Shorts overlay at the bottom and right edge */
+  body.video .transport { display: none; }
+  body.video .hud { padding-top: 30px; }
+  body.video .top { flex-direction: column; gap: 0; }
+  body.video .brand h1 { font-size: 30px; }
+  body.video .brand p { display: block; font-size: 9px; }
+  body.video .mode { position: absolute; top: 34px; right: 16px; margin: 0; }
+  body.video .gauges {
+    position: absolute; left: 16px; right: 16px; top: 66%;
+    grid-template-columns: none; grid-template-rows: auto auto; grid-auto-flow: column;
+    column-gap: 8px; row-gap: 3px; padding: 8px 10px; font-size: 10px;
+  }
+  body.video .gauges dt { font-size: 8px; }
+  body.video .gauges dd { text-align: left; min-width: 0; white-space: nowrap; }
+  body.video .bottom { position: absolute; top: 128px; left: 16px; right: 60px; }
+  body.video .caption { min-height: 0; justify-content: flex-start; }
+  body.video .caption .text { font-size: 19px; }
+  body.video .caption > * { transition: none; }
+
+  @media (max-width: 640px) {
+    .gauges { font-size: 10px; padding: 8px 10px; column-gap: 10px; }
+    .gauges dd { min-width: 7ch; }
+    .brand p { display: none; }
+    .caption { min-height: 76px; }
+    .hint { display: none; }
+  }
+  @media (max-width: 420px) {
+    .top { flex-direction: column; }
+  }
+
+  [hidden] { display: none !important; }
+  .hud { z-index: 2; }
+  #callouts { position: fixed; inset: 0; pointer-events: none; z-index: 1; overflow: hidden; }
+  .callout { position: absolute; left: 0; top: 0; opacity: 0; font: 500 10.5px/1 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg); }
+  .callout .dot { position: absolute; left: -4px; top: -4px; width: 8px; height: 8px; border-radius: 50%; background: var(--flash); box-shadow: 0 0 0 3px rgba(0,0,0,0.35); }
+  .callout .line { position: absolute; left: 0; top: 0; height: 1px; background: rgba(232,236,239,0.75); transform-origin: 0 0; }
+  .callout .tag { position: absolute; left: 0; top: 0; white-space: nowrap; padding: 4px 7px; background: rgba(12,14,17,0.82); border: 1px solid var(--line); border-left: 2px solid var(--flash); }
+  .callout.x .dot { background: var(--xray); }
+  .callout.x .tag { border-left-color: var(--xray); }
+  #pip { position: fixed; top: 170px; right: max(16px, env(safe-area-inset-right, 0px)); width: min(34vw, 320px); aspect-ratio: 16 / 10; z-index: 3; pointer-events: none;
+    border: 1px solid rgba(255, 90, 80, 0.8); backdrop-filter: grayscale(1) contrast(1.3) brightness(1.7); -webkit-backdrop-filter: grayscale(1) contrast(1.3) brightness(1.7); }
+  #pip svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  #pip canvas { position: absolute; inset: 0; width: 100%; height: 100%; image-rendering: pixelated; }
+  #pip .lbl { position: absolute; left: 7px; top: 6px; font: 500 9.5px/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: #ff6a5a; text-shadow: 0 0 4px #000; }
+  #pip .lock { top: auto; bottom: 6px; }
+  .dpips { display: inline-flex; gap: 4px; align-items: center; vertical-align: middle; }
+  .dpips i { width: 8px; height: 8px; border-radius: 50%; background: #d4d9de; }
+  .dpips i.big { width: 12px; height: 12px; }
+  .dpips i.fly { background: transparent; box-shadow: inset 0 0 0 1.5px var(--xray); }
+  .dpips i.done { background: #3a3f45; }
+  body.video #pip { top: 268px; right: 16px; width: 200px; }
+  body.video .callout { font-size: 9.5px; }
+  @media (max-width: 640px) { #pip { top: 200px; width: 46vw; } }
+  #xray, .mode { display: none !important; }
+</style>
+<div id="stage"></div>
+<div id="callouts"></div>
+
+<div class="hud">
+  <div class="top">
+    <div class="brand">
+      <h1>Cabin<br>Fire</h1>
+      <p>Molotov · fire spread · charring · collapse</p>
+      <span class="mode" id="modeTag">X-ray view</span>
+    </div>
+    <dl class="gauges" aria-label="Live readouts">
+      <dt>Stage</dt><dd id="gStage">Thrown</dd>
+      <dt>Burning</dt><dd id="gBelt">—</dd>
+      <dt>Charred</dt><dd id="gRate">0%</dd>
+      <dt>Elapsed</dt><dd id="gVel">0:00</dd>
+    </dl>
+  </div>
+
+  <div class="bottom">
+    <div class="caption" id="caption" aria-live="polite">
+      <div class="step" id="capStep"></div>
+      <p class="text" id="capText"></p>
+    </div>
+    <div class="transport">
+      <button id="play" aria-label="Pause"><svg viewBox="0 0 12 12" id="playIcon"><rect x="1" y="1" width="3.5" height="10"/><rect x="7.5" y="1" width="3.5" height="10"/></svg></button>
+      <div class="scrub">
+        <div class="track" id="track"><div class="fill" id="fill"></div></div>
+        <input type="range" id="scrub" min="0" max="1000" value="0" aria-label="Timeline">
+      </div>
+      <span class="time" id="time">0.0 s</span>
+      <button id="xray" aria-pressed="false" title="X-ray: auto, on, off">X-ray: Auto</button>
+      <button id="speed" title="Playback speed">1×</button>
+      <button id="cam" aria-pressed="false" title="Drag the scene to orbit freely">Camera: Director</button>
+      <span class="hint">Drag to orbit</span>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/GammaCorrectionShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+<script>
+(() => {
+  const T = THREE;
+  const PI = Math.PI;
+  const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+  const lerp = (a, b, k) => a + (b - a) * k;
+  const smooth = k => { k = clamp(k); return k * k * (3 - 2 * k); };
+  const easeOut = k => { k = clamp(k); return 1 - Math.pow(1 - k, 3); };
+  const easeIn = k => { k = clamp(k); return k * k * k; };
+  const span = (t, a, b) => clamp((t - a) / (b - a));
+  const pulse = (t, a, b, c, d) => smooth(span(t, a, b)) * (1 - smooth(span(t, c, d)));
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const rand = (i, j) => { const x = Math.sin(i * 127.1 + j * 311.7) * 43758.5453; return x - Math.floor(x); };
+  const V = (x, y, z) => new T.Vector3(x, y, z);
+
+  // ---------------------------------------------------------------- renderer
+  const stage = document.getElementById('stage');
+  const renderer = new T.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.toneMapping = T.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.0;
+  stage.appendChild(renderer.domElement);
+  const scene = new T.Scene();
+  const camera = new T.PerspectiveCamera(32, 1, 0.1, 4000);
+  const HORIZON = new T.Color(0.26, 0.21, 0.22), XRAY_FOG = new T.Color(0.0, 0.01, 0.02);
+  scene.fog = new T.Fog(HORIZON.clone(), 220, 2200);
+
+  {
+    const env = new T.Scene();
+    env.add(new T.Mesh(new T.BoxGeometry(60, 30, 60), new T.MeshBasicMaterial({ color: 0x15171a, side: T.BackSide })));
+    const box = (w, h, x, y, z, ry, rx, c) => { const m = new T.Mesh(new T.PlaneGeometry(w, h), new T.MeshBasicMaterial({ color: c, side: T.DoubleSide })); m.position.set(x, y, z); m.rotation.set(rx || 0, ry || 0, 0); env.add(m); };
+    box(40, 40, 0, 14.5, 0, 0, PI / 2, new T.Color(0.75, 0.8, 0.9));
+    box(4, 22, -24, 2, 8, PI / 2.6, 0, new T.Color(1.2, 1.2, 1.25));
+    box(30, 3, 0, 4, -28, 0, 0, new T.Color(0.9, 0.8, 0.65));
+    scene.environment = new T.PMREMGenerator(renderer).fromScene(env, 0.02).texture;
+  }
+  const sun = new T.DirectionalLight(0xfff0dc, 1.7); sun.position.set(-60, 90, 70); scene.add(sun);
+  scene.add(new T.HemisphereLight(0xc7d6e6, 0x5b5242, 0.45));
+
+  const bgMat = new T.ShaderMaterial({
+    uniforms: { uX: { value: 0 }, uRes: { value: new T.Vector2(1, 1) } },
+    vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.9999, 1.0); }',
+    fragmentShader: `
+      varying vec2 vUv; uniform float uX; uniform vec2 uRes;
+      void main(){
+        vec3 solid = mix(vec3(0.42, 0.27, 0.22), vec3(0.05, 0.07, 0.14), smoothstep(0.25, 1.0, vUv.y));
+        vec2 c = vUv - vec2(0.5, 0.56); c.x *= uRes.x / uRes.y; float r = length(c);
+        vec3 xr = mix(vec3(0.006, 0.032, 0.055), vec3(0.0, 0.004, 0.009), smoothstep(0.0, 0.95, r));
+        vec2 g = gl_FragCoord.xy / (uRes.y / 18.0); vec2 f = abs(fract(g) - 0.5);
+        float line = 1.0 - smoothstep(0.0, 0.035, min(f.x, f.y));
+        xr += vec3(0.010, 0.040, 0.060) * line * (1.0 - smoothstep(0.2, 1.0, r));
+        gl_FragColor = vec4(mix(solid, xr, uX), 1.0);
+      }`,
+    depthWrite: false, depthTest: false
+  });
+  const bg = new T.Mesh(new T.PlaneGeometry(2, 2), bgMat);
+  bg.frustumCulled = false; bg.renderOrder = -10; scene.add(bg);
+
+  // ---------------------------------------------------------------- geometry helpers
+  function autoSmooth(geo, angle) {
+    const g = geo.index ? geo.toNonIndexed() : geo;
+    const p = g.attributes.position, n = p.count, faces = n / 3;
+    const fa = new Float32Array(faces * 3), fu = new Float32Array(faces * 3);
+    const a = new T.Vector3(), b = new T.Vector3(), c = new T.Vector3();
+    for (let f = 0; f < faces; f++) {
+      a.fromBufferAttribute(p, f * 3); b.fromBufferAttribute(p, f * 3 + 1); c.fromBufferAttribute(p, f * 3 + 2);
+      b.sub(a); c.sub(a); b.cross(c);
+      fa[f * 3] = b.x; fa[f * 3 + 1] = b.y; fa[f * 3 + 2] = b.z;
+      b.normalize(); fu[f * 3] = b.x; fu[f * 3 + 1] = b.y; fu[f * 3 + 2] = b.z;
+    }
+    const groups = new Map();
+    for (let i = 0; i < n; i++) {
+      const k = Math.round(p.getX(i) * 1e4) + ',' + Math.round(p.getY(i) * 1e4) + ',' + Math.round(p.getZ(i) * 1e4);
+      let l = groups.get(k); if (!l) groups.set(k, l = []); l.push(i);
+    }
+    const cosT = Math.cos(angle * PI / 180), out = new Float32Array(n * 3);
+    groups.forEach(list => {
+      for (const i of list) {
+        const fi = (i / 3 | 0) * 3; let x = 0, y = 0, z = 0;
+        for (const j of list) {
+          const fj = (j / 3 | 0) * 3;
+          if (fu[fi] * fu[fj] + fu[fi + 1] * fu[fj + 1] + fu[fi + 2] * fu[fj + 2] >= cosT) { x += fa[fj]; y += fa[fj + 1]; z += fa[fj + 2]; }
+        }
+        const l = Math.hypot(x, y, z) || 1; out[i * 3] = x / l; out[i * 3 + 1] = y / l; out[i * 3 + 2] = z / l;
+      }
+    });
+    g.setAttribute('normal', new T.BufferAttribute(out, 3));
+    return g;
+  }
+  // side profile (x, y) extruded across z, centred
+  function extrudeZ(pts, depth, bevel = 0.04) {
+    const s = new T.Shape(); pts.forEach(([x, y], i) => i ? s.lineTo(x, y) : s.moveTo(x, y));
+    const g = new T.ExtrudeGeometry(s, { depth, bevelEnabled: bevel > 0, bevelThickness: bevel, bevelSize: bevel, bevelSegments: 2 });
+    g.translate(0, 0, -depth / 2); return autoSmooth(g, 40);
+  }
+  // top-view outline (x, z) extruded upward from y = 0
+  function extrudeY(pts, height, bevel = 0.05) {
+    const s = new T.Shape(); pts.forEach(([x, z], i) => i ? s.lineTo(x, -z) : s.moveTo(x, -z));
+    const g = new T.ExtrudeGeometry(s, { depth: height, bevelEnabled: bevel > 0, bevelThickness: bevel, bevelSize: bevel, bevelSegments: 2 });
+    g.rotateX(-PI / 2); g.translate(0, bevel, 0); return autoSmooth(g, 40);
+  }
+  const alongX = g => g.rotateZ(-PI / 2);
+  const lathe = (pts, seg = 32) => alongX(new T.LatheGeometry(pts.map(([r, x]) => new T.Vector2(r, x)), seg));
+  const cylX = (r, len, seg = 20, r2) => alongX(new T.CylinderGeometry(r2 === undefined ? r : r2, r, len, seg));
+  const cylZ = (r, len, seg = 24) => new T.CylinderGeometry(r, r, len, seg).rotateX(PI / 2);
+  const canvasTex = (w, h, draw) => { const cv = document.createElement('canvas'); cv.width = w; cv.height = h; draw(cv.getContext('2d'), w, h); const t = new T.CanvasTexture(cv); t.wrapS = t.wrapT = T.RepeatWrapping; return t; };
+
+  // ---------------------------------------------------------------- dusk light: low warm sun, dim blue sky, so the fire carries the scene
+  scene.fog.color.copy(HORIZON); scene.fog.near = 140; scene.fog.far = 1600;
+  sun.color.setRGB(1.0, 0.62, 0.38); sun.intensity = 0.75; sun.position.set(-120, 40, -80);
+  scene.traverse(o => { if (o.isHemisphereLight) { o.intensity = 0.32; o.color.setRGB(0.45, 0.55, 0.75); o.groundColor.setRGB(0.25, 0.2, 0.16); } });
+  const std = (color, metalness, roughness, extra = {}) => { const m = new T.MeshStandardMaterial(Object.assign({ color, metalness, roughness }, extra)); m.color.convertSRGBToLinear(); return m; };
+  const noiseTex = (base, spread, n, rep, tint) => { const t = canvasTex(256, 256, (x, w, h) => { x.fillStyle = base; x.fillRect(0, 0, w, h); for (let i = 0; i < n; i++) { const g = rand(i, 1); x.fillStyle = `rgba(${tint[0] * g | 0},${tint[1] * g | 0},${tint[2] * g | 0},${0.15 + rand(i, 2) * spread})`; x.fillRect(rand(i, 3) * w, rand(i, 4) * h, 1 + rand(i, 5) * 4, 1 + rand(i, 6) * 4); } }); t.repeat.set(rep, rep); t.encoding = T.sRGBEncoding; return t; };
+  const dirtM = std(0x7d6c55, 0, 0.95, { map: noiseTex('#6e5f4a', 0.4, 3000, 300, [150, 130, 100]) });
+  const concreteM = std(0x8a8984, 0, 0.9, { map: noiseTex('#7c7b77', 0.35, 4000, 6, [170, 168, 160]) });
+  const brickTex = canvasTex(256, 256, (x, w, h) => { x.fillStyle = '#5a4a40'; x.fillRect(0, 0, w, h); for (let r = 0; r < 16; r++) for (let c = 0; c < 8; c++) { const o = r % 2 ? 16 : 0, g = 0.75 + rand(r * 9 + c, 1) * 0.35; x.fillStyle = `rgb(${130 * g | 0},${58 * g | 0},${42 * g | 0})`; x.fillRect(c * 32 + o - 16 + 1, r * 16 + 1, 30, 14); } }); brickTex.repeat.set(4, 1); brickTex.encoding = T.sRGBEncoding;
+  const brickM = std(0xffffff, 0, 0.9, { map: brickTex });
+  const woodTex = canvasTex(128, 128, (x, w, h) => { x.fillStyle = '#8a6a44'; x.fillRect(0, 0, w, h); for (let i = 0; i < 8; i++) { x.fillStyle = 'rgba(40,25,10,0.6)'; x.fillRect(0, i * 16, w, 2); } for (let i = 0; i < 300; i++) { x.fillStyle = `rgba(60,40,20,${rand(i, 1) * 0.3})`; x.fillRect(rand(i, 2) * w, rand(i, 3) * h, 20, 1); } }); woodTex.encoding = T.sRGBEncoding;
+  const woodM = std(0xffffff, 0, 0.85, { map: woodTex });
+  const glassM = new T.MeshStandardMaterial({ color: new T.Color(0.25, 0.55, 0.3), metalness: 0.1, roughness: 0.05, transparent: true, opacity: 0.55, envMapIntensity: 1.5 });
+  const fuelM = new T.MeshStandardMaterial({ color: new T.Color(0.55, 0.38, 0.12), metalness: 0, roughness: 0.2, transparent: true, opacity: 0.85 });
+  const ragM = std(0xd8cdb4, 0, 0.95);
+  const box = (w, h, d) => new T.BoxGeometry(w, h, d);
+  function solid(geo, mat, parent, pos, rot) { const m = new T.Mesh(geo, mat); parent.add(m); if (pos) m.position.set(...pos); if (rot) m.rotation.set(...rot); return m; }
+  const xrayMats = [];
+
+  // ---------------------------------------------------------------- the fire system
+  // Flames: layered tongue meshes (outer orange, inner gold, pale core) whose opacity comes from scrolling 3D noise,
+  // so edges tear and flicker; tips bend and lick. Smoke: noise-edged billboards, dark and soot-heavy, under-lit by the fire.
+  const NOISE = `
+    float hash3(vec3 p){ p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
+    float vnoise(vec3 x){ vec3 i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 * f);
+      return mix(mix(mix(hash3(i), hash3(i + vec3(1,0,0)), f.x), mix(hash3(i + vec3(0,1,0)), hash3(i + vec3(1,1,0)), f.x), f.y),
+                 mix(mix(hash3(i + vec3(0,0,1)), hash3(i + vec3(1,0,1)), f.x), mix(hash3(i + vec3(0,1,1)), hash3(i + vec3(1,1,1)), f.x), f.y), f.z); }
+    float fbm(vec3 p){ return 0.58 * vnoise(p) + 0.29 * vnoise(p * 2.07 + 3.1) + 0.13 * vnoise(p * 4.3 + 7.7); }`;
+  const tongueGeo = (() => { const prof = [0.55, 1.0, 0.77, 0.58, 0.40, 0.20, 0.015]; const pts = []; for (let i = 0; i <= 18; i++) { const u = i / 18 * 6, a = Math.floor(Math.min(u, 5.999)), f = u - a, r = lerp(prof[a], prof[a + 1], f * f * (3 - 2 * f)); pts.push(new T.Vector2(Math.max(0.005, r), i / 18)); } return new T.LatheGeometry(pts, 12); })();
+  const N_TONGUE = 1100;
+  const tongueData = new Float32Array(N_TONGUE * 4);
+  tongueGeo.setAttribute('aData', new T.InstancedBufferAttribute(tongueData, 4));
+  const flameMat = new T.ShaderMaterial({
+    uniforms: { uTime: { value: 0 }, uWind: { value: new T.Vector2(0.05, 0.02) } },
+    vertexShader: `attribute vec4 aData; uniform float uTime; uniform vec2 uWind;
+      varying float vH; varying vec3 vLP; varying vec4 vD; varying vec3 vN; varying vec3 vV; varying float vHS;
+      void main(){
+        vec3 p = position; float h = p.y;
+        float hs = length(instanceMatrix[1].xyz);
+        vec4 wp = modelMatrix * instanceMatrix * vec4(p, 1.0);
+        float ph = aData.x * 6.2831;
+        float sway = 0.5 + 0.5 * sin(uTime * 4.3 / sqrt(hs) + ph);
+        wp.x += (0.30 * sway - 0.1 + uWind.x * 3.0) * h * h * hs;
+        wp.z += (0.14 * sin(h * 5.0 + uTime * 7.0 / sqrt(hs) + ph) + uWind.y * 3.0) * h * h * hs;
+        vH = h; vLP = p; vD = aData; vHS = hs;
+        vN = normalize(mat3(modelMatrix) * mat3(instanceMatrix) * normal);
+        vV = normalize(cameraPosition - wp.xyz);
+        gl_Position = projectionMatrix * viewMatrix * wp;
+      }`,
+    fragmentShader: `uniform float uTime; varying float vH; varying vec3 vLP; varying vec4 vD; varying vec3 vN; varying vec3 vV; varying float vHS;
+      ${NOISE}
+      void main(){
+        float layer = vD.y, heat = vD.z, seed = vD.w;
+        float spd = 3.2 / sqrt(max(vHS, 0.3));
+        float n = fbm(vec3(vLP.x * 2.2, vLP.y * 3.0 - uTime * spd, vLP.z * 2.2) + seed * 7.31);
+        float thr = mix(0.30, 0.56, vH);
+        float a = smoothstep(thr, thr + 0.28, n + 0.22 * (1.0 - vH));
+        a *= pow(abs(dot(normalize(vN), normalize(vV))), 0.7) * heat;
+        vec3 c0; float op, str;
+        if (layer < 0.5) { c0 = vec3(1.0, 0.22, 0.02); op = 0.5; str = 1.5; }
+        else if (layer < 1.5) { c0 = vec3(1.0, 0.48, 0.06); op = 0.55; str = 1.65; }
+        else { c0 = vec3(1.0, 0.78, 0.38); op = 0.6; str = 1.85; }
+        vec3 col = mix(c0 * str, vec3(0.75, 0.07, 0.0) * 1.4, smoothstep(0.4, 1.0, vH));
+        gl_FragColor = vec4(col, clamp(a * op, 0.0, 1.0));
+      }`,
+    transparent: true, depthWrite: false, blending: T.AdditiveBlending, side: T.DoubleSide
+  });
+  const tongues = new T.InstancedMesh(tongueGeo, flameMat, N_TONGUE); tongues.frustumCulled = false; tongues.count = 0; tongues.renderOrder = 8; scene.add(tongues);
+  const billboard = (n, additive) => {
+    const g = new T.PlaneGeometry(1, 1), data = new Float32Array(n * 4); g.setAttribute('aS', new T.InstancedBufferAttribute(data, 4));
+    const m = new T.ShaderMaterial({
+      uniforms: { uTime: { value: 0 }, uFire: { value: additive ? 1 : 0 }, uDark: { value: new T.Color(0.035, 0.032, 0.03) }, uLight: { value: new T.Color(0.2, 0.19, 0.18) }, uLit: { value: new T.Color(0.55, 0.2, 0.05) } },
+      vertexShader: `attribute vec4 aS; varying vec2 vUv; varying vec4 vS;
+        void main(){
+          vec4 c = modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+          float size = length(instanceMatrix[0].xyz), r = aS.w;
+          vec2 q = position.xy; q = vec2(q.x * cos(r) - q.y * sin(r), q.x * sin(r) + q.y * cos(r));
+          vec4 mv = viewMatrix * c; mv.xy += q * size;
+          vUv = position.xy * 2.0; vS = aS; gl_Position = projectionMatrix * mv;
+        }`,
+      fragmentShader: `uniform float uTime, uFire; uniform vec3 uDark, uLight, uLit; varying vec2 vUv; varying vec4 vS;
+        ${NOISE}
+        void main(){
+          float d = length(vUv);
+          float n = fbm(vec3(vUv * 1.7 + vS.x * 17.0, uTime * 0.22 + vS.x * 5.0));
+          float a = smoothstep(1.0, 0.15, d + (n - 0.5) * 1.0) * vS.y;
+          if (uFire > 0.5) {
+            float T = vS.z - d * 0.6 + (n - 0.5) * 0.7;
+            vec3 col = T > 0.75 ? mix(vec3(1.0, 0.62, 0.22), vec3(1.0, 0.9, 0.62), (T - 0.75) * 4.0) : T > 0.42 ? mix(vec3(1.0, 0.26, 0.03), vec3(1.0, 0.62, 0.22), (T - 0.42) / 0.33) : mix(vec3(0.12, 0.02, 0.0), vec3(1.0, 0.26, 0.03), max(T, 0.0) / 0.42);
+            gl_FragColor = vec4(col * 1.45, 0.75 * a * clamp(T * 2.2, 0.0, 1.0)); return;
+          }
+          vec3 col = mix(uDark, uLight, n * n) + uLit * vS.z * clamp(0.7 - vUv.y * 0.5, 0.0, 1.0);
+          gl_FragColor = vec4(col, a);
+        }`,
+      transparent: true, depthWrite: false, blending: additive ? T.AdditiveBlending : T.NormalBlending
+    });
+    const mesh = new T.InstancedMesh(g, m, n); mesh.frustumCulled = false; mesh.count = 0; mesh.renderOrder = additive ? 9 : 7; scene.add(mesh);
+    return { mesh, data, mat: m, n };
+  };
+  const smoke = billboard(700, false), fireball = billboard(500, true);
+  const emberGeo = new T.BufferGeometry(), emberPos = new Float32Array(600 * 3); emberGeo.setAttribute('position', new T.BufferAttribute(emberPos, 3));
+  const emberTex = canvasTex(32, 32, (x, w) => { const g = x.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2); g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(1, 'rgba(255,255,255,0)'); x.fillStyle = g; x.fillRect(0, 0, w, w); });
+  const embers = new T.Points(emberGeo, new T.PointsMaterial({ map: emberTex, color: new T.Color(3, 1.3, 0.3), size: 0.09, sizeAttenuation: true, transparent: true, blending: T.AdditiveBlending, depthWrite: false })); embers.frustumCulled = false; scene.add(embers);
+  const fireLights = Array.from({ length: 4 }, () => { const l = new T.PointLight(0xff7a2a, 0, 30, 2); scene.add(l); return l; });
+  // charred ground and wet fuel decals
+  const blotchTex = canvasTex(256, 256, (x, w) => { x.clearRect(0, 0, w, w); const c = w / 2; for (let k = 0; k < 3; k++) { x.fillStyle = `rgba(255,255,255,${0.35 + k * 0.25})`; x.beginPath(); for (let i = 0; i <= 48; i++) { const a = i / 48 * 2 * PI, r = (110 - k * 25) * (0.7 + 0.3 * rand(i + k * 50, 3)); x.lineTo(c + Math.cos(a) * r, c + Math.sin(a) * r); } x.fill(); } });
+  const decal = (color, opacity, order) => { const m = new T.Mesh(new T.PlaneGeometry(1, 1).rotateX(-PI / 2), new T.MeshStandardMaterial({ map: blotchTex, color, transparent: true, opacity, roughness: 1, metalness: 0, envMapIntensity: 0, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -order })); m.renderOrder = 2; scene.add(m); m.visible = false; return m; };
+  const charSwath = (n, op) => Array.from({ length: n }, () => decal(new T.Color(0.02, 0.018, 0.015), op, 3));
+
+  // the bottle: glass, fuel inside, a rag stuffed in the neck
+  const bottle = new T.Group(); scene.add(bottle);
+  solid(new T.LatheGeometry([[0, 0], [0.04, 0], [0.042, 0.02], [0.042, 0.17], [0.03, 0.21], [0.013, 0.25], [0.013, 0.3], [0, 0.3]].map(([r, y]) => new T.Vector2(r, y)), 18), glassM, bottle);
+  solid(new T.CylinderGeometry(0.036, 0.036, 0.13, 16), fuelM, bottle, [0, 0.085, 0]);
+  const rag = solid(new T.ConeGeometry(0.03, 0.14, 7), ragM, bottle, [0.01, 0.34, 0], [0, 0, 0.5]);
+  
+  const N_SHARD = 70;
+  const shardGeo = (() => { const g = new T.BufferGeometry(); g.setAttribute('position', new T.Float32BufferAttribute([0, 0, 0, 0.05, 0.01, 0, 0.015, 0.045, 0.003], 3)); g.computeVertexNormals(); return g; })();
+  const shards = new T.InstancedMesh(shardGeo, new T.MeshStandardMaterial({ color: new T.Color(0.35, 0.7, 0.4), metalness: 0.2, roughness: 0.05, transparent: true, opacity: 0.8, side: T.DoubleSide }), N_SHARD); shards.frustumCulled = false; scene.add(shards);
+  const fuelPool = decal(new T.Color(0.18, 0.11, 0.04), 0.85, 1), scorchA = decal(new T.Color(0.02, 0.017, 0.014), 0.9, 2);
+  const dropGeo = new T.BufferGeometry(), dropPos = new Float32Array(260 * 3); dropGeo.setAttribute('position', new T.BufferAttribute(dropPos, 3));
+  const drops = new T.Points(dropGeo, new T.PointsMaterial({ map: emberTex, color: new T.Color(0.9, 0.75, 0.45), size: 0.06, transparent: true, depthWrite: false })); drops.frustumCulled = false; scene.add(drops);
+
+  // ---------------------------------------------------------------- the setting: a clearing at dusk with a tree line
+  const groundM = std(0x6b5d48, 0, 0.95, { map: noiseTex('#5f523f', 0.4, 3000, 300, [140, 120, 90]) });
+  solid(new T.PlaneGeometry(800, 800).rotateX(-PI / 2), groundM, scene);
+  { const N = 220, trees = new T.InstancedMesh(new T.ConeGeometry(1, 1, 7), std(0x1d2a1c, 0, 0.9), N), m = new T.Matrix4(), q = new T.Quaternion();
+    for (let i = 0; i < N; i++) { const a = -0.9 * PI + rand(i, 1) * 1.6 * PI, r = 32 + rand(i, 2) * 40, h = 7 + rand(i, 3) * 9; m.compose(V(Math.cos(a) * r, h / 2, -Math.abs(Math.sin(a)) * r - 6), q.identity(), V(2 + rand(i, 4) * 1.5, h, 2 + rand(i, 4) * 1.5)); trees.setMatrixAt(i, m); }
+    scene.add(trees); }
+  { const N = 500, tufts = new T.InstancedMesh(new T.ConeGeometry(0.08, 0.35, 4), std(0x4c5530, 0, 0.9), N), m = new T.Matrix4(), q = new T.Quaternion();
+    for (let i = 0; i < N; i++) { const x = (rand(i, 5) - 0.5) * 40, z = (rand(i, 6) - 0.5) * 30; if (Math.abs(x) < 4 && Math.abs(z) < 3.5) { m.makeScale(0, 0, 0); tufts.setMatrixAt(i, m); continue; } m.compose(V(x, 0.15, z), q.setFromEuler(new T.Euler((rand(i, 7) - 0.5) * 0.5, 0, (rand(i, 8) - 0.5) * 0.5)), V(1, 0.6 + rand(i, 9), 1)); tufts.setMatrixAt(i, m); }
+    scene.add(tufts); }
+
+  // ---------------------------------------------------------------- the cabin: individual boards, posts and roof strips, all one instanced mesh
+  // Boards char where the fire has been: a shader darkens the wood in noisy patches from ignition time and height, with glowing cracks.
+  const W = 6, D = 5, H = 3.0, RIDGE = 4.6, BOARD = 0.24, THICK = 0.045;
+  const boards = [];                                                 // { p, q, s, ign, baseY, climb, kind, out }
+  const IGN = V(-1.2, 0.3, D / 2 + 0.04);
+  const T_IGN = 1.68, V_SIDE = 1.3, CLIMB = 0.42, T_CHAR = 1.5;
+  const qId = new T.Quaternion();
+  const addBoard = (p, h, w, d, ign, kind, out, rotY = 0) => boards.push({ p, q: new T.Quaternion().setFromEuler(new T.Euler(0, rotY, 0)), s: V(w, h, d), ign, baseY: p.y - h / 2, climb: 1, kind, out });
+  for (let i = 0; i < 25; i++) { const x = -W / 2 + BOARD / 2 + i * BOARD; [1, -1].forEach(sd => { const ign = sd > 0 ? T_IGN + Math.abs(x - IGN.x) / V_SIDE : T_IGN + (W / 2 + D + W / 2 - Math.abs(x)) / V_SIDE * 0.9; addBoard(V(x, H / 2, sd * (D / 2)), H, BOARD - 0.006, THICK, ign, sd > 0 ? 'front' : 'back', V(0, 0, sd)); }); }
+  for (let i = 0; i < 21; i++) { const z = -D / 2 + BOARD / 2 + i * BOARD; [1, -1].forEach(sd => { const h = H + (RIDGE - H) * (1 - Math.abs(z) / (D / 2)); const toCorner = sd < 0 ? Math.abs(-W / 2 - IGN.x) : W / 2 - IGN.x; const ign = T_IGN + (toCorner + (D / 2 - z)) / V_SIDE * 0.95; addBoard(V(sd * (W / 2), h / 2, z), h, THICK, BOARD - 0.006, ign, sd < 0 ? 'left' : 'right', V(sd, 0, 0)); }); }
+  const slope = Math.hypot(D / 2 + 0.3, RIDGE - H + 0.18), ang = Math.atan2(RIDGE - H + 0.18, D / 2 + 0.3);
+  for (let i = 0; i < 13; i++) { const f = (i + 0.5) / 13; [1, -1].forEach(sd => { const z = sd * (D / 2 + 0.3) * (1 - f), y = H - 0.05 + (RIDGE - H + 0.18) * f + 0.06; const ign = T_IGN + H * CLIMB + (sd > 0 ? 0.6 + f * 1.4 : 3.0 + (1 - f) * 1.5); const b = { p: V(0, y, z), q: new T.Quaternion().setFromEuler(new T.Euler(sd * ang, 0, 0)), s: V(W + 0.6, 0.05, slope / 13 + 0.02), ign, baseY: 0, climb: 0, kind: 'roof', out: V(0, 1, sd * 0.5) }; boards.push(b); }); }
+  [[-1, 1], [1, 1], [-1, -1], [1, -1]].forEach(([a, b], i) => boards.push({ p: V(a * (W / 2 - 0.05), H / 2, b * (D / 2 - 0.05)), q: qId.clone(), s: V(0.16, H, 0.16), ign: T_IGN + 1.5 + i * 0.7, baseY: 0, climb: 1, kind: 'post', out: V(a, 0, b) }));
+  boards.push({ p: V(0, RIDGE + 0.1, 0), q: qId.clone(), s: V(W + 0.6, 0.18, 0.18), ign: T_IGN + 4.5, baseY: RIDGE, climb: 0, kind: 'ridge', out: V(0, 1, 0) });
+  [1, -1].forEach(sd => boards.push({ p: V(0, H - 0.08, sd * (D / 2 - 0.05)), q: qId.clone(), s: V(W, 0.16, 0.16), ign: T_IGN + 2.2 + (sd < 0 ? 1.5 : 0), baseY: H, climb: 0, kind: 'plate', out: V(0, 0, sd) }));
+  // door and window trim on the front, slightly proud of the boards
+  [[0.9, 1.0, 0.1, 2.0], [1.9, 1.0, 0.1, 2.0], [1.4, 2.05, 1.1, 0.1]].forEach(([x, y, w, h]) => boards.push({ p: V(x, y, D / 2 + 0.04), q: qId.clone(), s: V(w, h, 0.05), ign: T_IGN + Math.abs(x - IGN.x) / V_SIDE, baseY: y - h / 2, climb: 1, kind: 'trim', out: V(0, 0, 1) }));
+  const NB = boards.length;
+  const boardGeo = new T.BoxGeometry(1, 1, 1), aW = new Float32Array(NB * 3);
+  boards.forEach((b, i) => { aW.set([b.ign, b.baseY, b.climb], i * 3); });
+  boardGeo.setAttribute('aW', new T.InstancedBufferAttribute(aW, 3));
+  const plankTex = canvasTex(64, 256, (x, w, h) => { x.fillStyle = '#9a7650'; x.fillRect(0, 0, w, h); for (let i = 0; i < 60; i++) { x.fillStyle = `rgba(70,45,22,${0.15 + rand(i, 1) * 0.3})`; x.fillRect(rand(i, 2) * w, 0, 1 + rand(i, 3) * 2, h); } for (let i = 0; i < 5; i++) { x.fillStyle = 'rgba(60,35,15,0.6)'; x.beginPath(); x.ellipse(rand(i, 4) * w, rand(i, 5) * h, 3, 6, 0, 0, 2 * PI); x.fill(); } }); plankTex.encoding = T.sRGBEncoding;
+  const plankM = new T.MeshStandardMaterial({ map: plankTex, roughness: 0.85, metalness: 0 });
+  const charU = { uFTime: { value: 0 }, uClimb: { value: CLIMB }, uCharDur: { value: T_CHAR }, uGlow: { value: 1 } };
+  plankM.onBeforeCompile = sh => {
+    Object.assign(sh.uniforms, charU);
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute vec3 aW; varying vec3 vW3; varying vec3 vLP;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvec3 sc = vec3(length(instanceMatrix[0].xyz), length(instanceMatrix[1].xyz), length(instanceMatrix[2].xyz));\nvW3 = vec3(aW.x, (position.y + 0.5) * sc.y + aW.y, aW.z);\nvLP = position * sc + vec3(aW.x * 13.7, aW.y * 3.1, 0.0);');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform float uFTime, uClimb, uCharDur, uGlow; varying vec3 vW3; varying vec3 vLP;\n' + NOISE + '\nfloat chV; float glowV;')
+      .replace('#include <map_fragment>', `#include <map_fragment>
+        float tl = uFTime - vW3.x - max(0.0, vW3.y - 0.2) * uClimb * vW3.z;
+        float ch = clamp(tl / uCharDur, 0.0, 1.6);
+        float nn = fbm(vLP * 2.6);
+        chV = smoothstep(nn * 0.85 - 0.15, nn * 0.85 + 0.2, ch);
+        diffuseColor.rgb = mix(diffuseColor.rgb * mix(1.0, 0.55, smoothstep(-0.6, 0.0, tl) * (1.0 - chV)), vec3(0.022, 0.018, 0.016), chV);
+        float cr = fbm(vLP * vec3(9.0, 3.0, 9.0) + 5.0);
+        glowV = chV * smoothstep(0.58, 0.72, cr) * (1.0 - 0.75 * smoothstep(1.1, 1.6, ch)) * step(0.0, tl);`)
+      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, 1.0, chV);')
+      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vec3(1.0, 0.24, 0.03) * glowV * 2.6 * uGlow * (0.8 + 0.2 * sin(uFTime * 9.0 + vLP.x * 3.0 + vLP.y * 2.0));');
+  };
+  const cabin = new T.InstancedMesh(boardGeo, plankM, NB); scene.add(cabin);
+  // rest and collapsed poses: everything ends as a burning heap in the footprint
+  boards.forEach((b, i) => {
+    const long = Math.max(b.s.x, b.s.y, b.s.z), r = Math.sqrt(rand(i, 11)) * 3.6, a = rand(i, 12) * 2 * PI;
+    b.p1 = V(Math.cos(a) * r * 1.1 + b.out.x * 0.8, 0.06 + (1 - r / 3.6) * 0.9 * rand(i, 13) + rand(i, 14) * 0.15, Math.sin(a) * r * 0.9 + b.out.z * 1.2);
+    const lying = b.s.y >= long - 1e-6 ? new T.Euler(PI / 2 + (rand(i, 15) - 0.5) * 0.4, rand(i, 16) * PI, (rand(i, 17) - 0.5) * 0.4) : new T.Euler((rand(i, 15) - 0.5) * 0.5, rand(i, 16) * PI, (rand(i, 17) - 0.5) * 0.5);
+    b.q1 = new T.Quaternion().setFromEuler(lying);
+    b.tc = b.kind === 'roof' || b.kind === 'ridge' ? 9.05 + rand(i, 18) * 0.45 : b.kind === 'post' ? 9.3 + rand(i, 19) * 0.3 : b.kind === 'left' || b.kind === 'right' ? 9.45 + rand(i, 20) * 0.6 : 9.65 + rand(i, 21) * 0.7;
+    b.dur = 0.8 + rand(i, 22) * 0.6;
+  });
+  const T_COLLAPSE = 9.05;
+  // flame sites: points on the walls and roof that light as the fire front reaches them, then rubble sites after the collapse
+  const SITES = [];
+  boards.forEach((b, i) => {
+    if (b.kind === 'trim' || b.kind === 'plate') return;
+    if (b.kind === 'roof') { if (i % 3) return; for (let k = 0; k < 3; k++) { const x = -W / 2 + (k + 0.5) / 3 * W + (rand(i, k) - 0.5) * 1.4; SITES.push({ p: V(x, b.p.y + 0.05, b.p.z), ign: b.ign + Math.abs(x - IGN.x) / V_SIDE * 0.5, h: 1.6 + rand(i, k + 5) * 1.6, r: 0.5 + rand(i, k + 9) * 0.3, ph: rand(i, k + 13), seed: rand(i, k + 17) }); } return; }
+    if (b.kind === 'post' || b.kind === 'ridge') return;
+    if (i % 3) return;
+    const nY = Math.max(1, Math.round(b.s.y / 1.15));
+    for (let k = 0; k < nY; k++) { const y = (k + 0.15 + rand(i, k) * 0.7) / nY * b.s.y * 0.92, jx = (rand(i, k + 23) - 0.5) * 0.35; SITES.push({ p: b.p.clone().setY(y).addScaledVector(b.out, 0.14).add(V(b.out.z ? jx : 0, 0, b.out.x ? jx : 0)), ign: b.ign + Math.max(0, y - 0.2) * CLIMB, h: 1.0 + rand(i, k + 3) * 1.0 + y * 0.15, r: 0.24 + rand(i, k + 7) * 0.16, ph: rand(i, k + 11), seed: rand(i, k + 19), back: b.kind === 'back' }); }
+  });
+  const RUBBLE = Array.from({ length: 90 }, (_, i) => { const r = Math.sqrt(rand(i, 31)) * 3.4, a = rand(i, 32) * 2 * PI; return { p: V(Math.cos(a) * r * 1.1, 0.1 + (1 - r / 3.4) * 0.7, Math.sin(a) * r * 0.9), h: 0.7 + rand(i, 33) * 1.8 * (1 - r / 4), r: 0.25 + rand(i, 34) * 0.3, ph: rand(i, 35), seed: rand(i, 36), t0: T_COLLAPSE + 0.4 + rand(i, 37) * 1.2 }; });
+  const POOL = Array.from({ length: 16 }, (_, i) => { const a = rand(i, 41) * PI, r = Math.sqrt(rand(i, 42)) * 1.5; return { p: V(IGN.x + Math.cos(a) * r * 1.2, 0.02, D / 2 + 0.12 + Math.sin(a) * r * 0.8), d: r, h: 0.4 + rand(i, 43) * 0.8, r: 0.15 + rand(i, 44) * 0.18, ph: rand(i, 45), seed: rand(i, 46) }; });
+
+  // ---------------------------------------------------------------- timeline: real-time throw, slow-motion smash, then a time-lapse burn
+  const LOOP = 15;
+  const SMAP = [[0, 0], [1.5, 1.5], [2.5, 1.75], [LOOP, LOOP - 0.75]];
+  const simAt = t => { for (let i = 0; i < SMAP.length - 1; i++) { const [a, sa] = SMAP[i], [b, sb] = SMAP[i + 1]; if (t <= b) return lerp(sa, sb, (t - a) / (b - a)); } return t - 0.75; };
+  const THROW_FROM = V(-8.5, 1.7, 9.5), T_HIT = 1.6, FLIGHT = 1.6;
+  const IMPACT = IGN.clone().setY(0.6);
+  const SEG = [];
+  const CAPTIONS = [
+    [0, 1.5, 'Molotov cocktail', 'Thrown at the base of an old wooden cabin.'],
+    [1.5, 2.5, 'Slow motion', 'The bottle bursts against the wall and burning fuel splashes up the boards.'],
+    [2.5, 5.2, 'Time-lapse', 'Flames lick upward: fire climbs a wall far faster than it spreads sideways.'],
+    [5.2, 9.7, 'Charring', 'The boards blacken and split, glowing as the fire eats into them and takes the roof.'],
+    [9.7, 12.4, 'Collapse', 'Burned-through posts give way. The roof drops in and the walls fold.'],
+    [12.4, LOOP, '', 'What is left burns on as a heap of glowing timber.'],
+  ];
+  const FOCUS = [];
+  const bottleT = () => [bottle.position.x, bottle.position.y, bottle.position.z];
+  const CAM = [
+    { t: 0, tg: bottleT, az: -0.1, el: 0.08, d: 5.5 },
+    { t: 1.4, tg: bottleT, az: 0.35, el: 0.1, d: 5 },
+    { t: 1.5, tg: [IMPACT.x, 0.7, IMPACT.z], az: 0.45, el: 0.12, d: 5.2 },
+    { t: 2.5, tg: [IMPACT.x + 0.4, 1.0, IMPACT.z], az: 0.4, el: 0.1, d: 6.5 },
+    { t: 5.2, tg: [-0.3, 2.1, 1.0], az: 0.45, el: 0.1, d: 15 },
+    { t: 9.4, tg: [0, 2.6, 0], az: 0.7, el: 0.12, d: 18.5 },
+    { t: 12.4, tg: [0, 1.6, 0], az: 0.9, el: 0.15, d: 16 },
+    { t: LOOP, tg: [0, 1.0, 0], az: 1.05, el: 0.2, d: 14 },
+  ];
+  const Wp = (obj, x, y, z) => ({ obj, p: V(x, y, z) });
+  const CALLOUTS = [[0.3, 1.3, Wp(rag, 0, 0.05, 0), 'Burning rag', 30, -30]];
+
+
+  // ---------------------------------------------------------------- UI
+  const $ = id => document.getElementById(id);
+  const ui = { play: $('play'), playIcon: $('playIcon'), scrub: $('scrub'), time: $('time'), fill: $('fill'), xray: $('xray'), speed: $('speed'), cam: $('cam'), cap: $('caption'), capStep: $('capStep'), capText: $('capText'), modeTag: $('modeTag'), gStage: $('gStage'), gBelt: $('gBelt'), gRate: $('gRate'), gVel: $('gVel'), track: $('track') };
+  CAPTIONS.forEach(c => {
+    if (!c[2]) return;
+    const m = document.createElement('div'); m.className = 'seg' + (c[4] ? ' x' : '');
+    m.style.left = (c[0] / LOOP * 100) + '%'; m.style.width = ((c[1] - c[0]) / LOOP * 100) + '%';
+    ui.track.appendChild(m);
+  });
+  let videoMode = false;
+  let t = 0, playing = !reducedMotion, speed = 1, xMode = 'auto', camMode = 'director', xrayAmount = 0;
+  if (reducedMotion) t = 7;
+  const setPlayIcon = () => {
+    ui.play.setAttribute('aria-label', playing ? 'Pause' : 'Play');
+    ui.playIcon.innerHTML = playing ? '<rect x="1" y="1" width="3.5" height="10"/><rect x="7.5" y="1" width="3.5" height="10"/>' : '<path d="M2 1 L11 6 L2 11 Z"/>';
+  };
+  setPlayIcon();
+  ui.play.onclick = () => { playing = !playing; setPlayIcon(); };
+  ui.scrub.oninput = () => { t = ui.scrub.value / 1000 * LOOP; };
+  ui.xray.onclick = () => {
+    xMode = xMode === 'auto' ? 'on' : xMode === 'on' ? 'off' : 'auto';
+    ui.xray.textContent = 'X-ray: ' + xMode[0].toUpperCase() + xMode.slice(1);
+    ui.xray.setAttribute('aria-pressed', String(xMode === 'on'));
+  };
+  ui.speed.onclick = () => { speed = speed === 1 ? 0.5 : speed === 0.5 ? 0.25 : 1; ui.speed.textContent = (speed === 1 ? '1' : speed === 0.5 ? '½' : '¼') + '×'; };
+  const setCam = m => { camMode = m; ui.cam.textContent = 'Camera: ' + (m === 'free' ? 'Free' : 'Director'); ui.cam.setAttribute('aria-pressed', String(m === 'free')); };
+  ui.cam.onclick = () => setCam(camMode === 'free' ? 'director' : 'free');
+  document.addEventListener('keydown', e => {
+    if (e.target.tagName === 'INPUT' && e.code !== 'Space') return;
+    if (e.code === 'Space') { e.preventDefault(); ui.play.click(); }
+    if (e.key === 'x' || e.key === 'X') ui.xray.click();
+  });
+  const controls = new T.OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true; controls.dampingFactor = 0.08; controls.minDistance = 0.5; controls.maxDistance = 600;
+  controls.addEventListener('start', () => { if (camMode !== 'free') setCam('free'); });
+
+  const composer = new T.EffectComposer(renderer);
+  composer.addPass(new T.RenderPass(scene, camera));
+  const bloom = new T.UnrealBloomPass(new T.Vector2(1, 1), 0.5, 0.45, 0.82);
+  composer.addPass(bloom);
+  composer.addPass(new T.ShaderPass(T.GammaCorrectionShader));
+
+  function resize() {
+    const w = stage.clientWidth || window.innerWidth, h = stage.clientHeight || window.innerHeight;
+    renderer.setSize(w, h, false); composer.setSize(w, h);
+    camera.aspect = w / h;
+    if (videoMode) camera.setViewOffset(w, h, 0, h * 0.01, w, h); else camera.clearViewOffset();
+    camera.updateProjectionMatrix();
+    bgMat.uniforms.uRes.value.set(w, h);
+  }
+  window.addEventListener('resize', resize); resize();
+
+  function camAt(time) {
+    let i = 0; while (i < CAM.length - 2 && CAM[i + 1].t <= time) i++;
+    const a = CAM[i], b = CAM[i + 1], k = smooth(span(time, a.t, b.t));
+    const ta = typeof a.tg === 'function' ? a.tg(time) : a.tg, tb = typeof b.tg === 'function' ? b.tg(time) : b.tg;
+    const fit = Math.max(1, (videoMode ? 1.55 : 1.45) / camera.aspect);
+    const sc = key => key.nf ? 1 : key.d > 20 ? fit : Math.sqrt(fit);
+    return { tg: [lerp(ta[0], tb[0], k), lerp(ta[1], tb[1], k), lerp(ta[2], tb[2], k)], az: lerp(a.az, b.az, k), el: lerp(a.el, b.el, k), d: lerp(a.d * sc(a), b.d * sc(b), k) };
+  }
+
+  const calloutRoot = document.getElementById('callouts');
+  const callouts = CALLOUTS.map(([t0, t1, a, text, dx, dy]) => {
+    const el = document.createElement('div'); el.className = 'callout';
+    el.innerHTML = '<span class="line"></span><span class="dot"></span><span class="tag"></span>';
+    el.querySelector('.tag').textContent = text; calloutRoot.appendChild(el);
+    return { t0, t1, a, dx, dy, el, line: el.querySelector('.line'), tag: el.querySelector('.tag') };
+  });
+
+  // ---------------------------------------------------------------- per-frame helpers
+  const _m = new T.Matrix4(), _q = new T.Quaternion(), _s = V(1, 1, 1), v3 = V(0, 0, 0), tmp = V(0, 0, 0), _p = V(0, 0, 0);
+  let nT = 0, nS = 0, nF = 0, nE = 0;
+  const tongue = (x, y, z, h, r, layer, heat, seed, ph) => { if (nT >= N_TONGUE || heat < 0.01 || h < 0.02) return; _m.compose(v3.set(x, y, z), _q.identity(), _s.set(r, h, r)); tongues.setMatrixAt(nT, _m); tongueData.set([ph, layer, heat, seed], nT * 4); nT++; };
+  const flame = (x, y, z, h, r, heat, seed, ph) => { tongue(x, y, z, h, r, 0, heat, seed, ph); tongue(x, y + 0.02 * h, z, h * 0.66, r * 0.58, seed > 0.33 ? 1 : 2, heat, seed + 0.37, ph + 0.21); };
+  const puff = (B, x, y, z, size, op, heatOrLit, seed, rot) => { const k = B === smoke ? nS : nF; if (k >= B.n || op <= 0.004) return; _m.compose(v3.set(x, y, z), _q.identity(), _s.set(size, size, size)); B.mesh.setMatrixAt(k, _m); B.data.set([seed, op, heatOrLit, rot], k * 4); if (B === smoke) nS++; else nF++; };
+  const ember = (x, y, z) => { if (nE >= 600) return; emberPos.set([x, y, z], nE * 3); nE++; };
+  const flick = (t, k) => 0.78 + 0.22 * rand(Math.floor(t * 14) + k * 31, 3) + 0.08 * Math.sin(t * 23 + k);
+  const THROW_DIR = IMPACT.clone().sub(THROW_FROM).setY(0).normalize();
+  const siteOn = (st, s) => s >= st.ign;
+  const fmt = sec => `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, '0')}`;
+
+  // ---------------------------------------------------------------- per-frame update
+  let lastCap = -1;
+  function update(t, wall) {
+    nT = 0; nS = 0; nF = 0; nE = 0;
+    const s = simAt(t);
+    flameMat.uniforms.uTime.value = t; smoke.mat.uniforms.uTime.value = t; fireball.mat.uniforms.uTime.value = t;
+    flameMat.uniforms.uWind.value.set(0.05, -0.02);
+    charU.uFTime.value = s; charU.uGlow.value = 1 - 0.4 * smooth(clamp((s - 12) / 2));
+    fireLights.forEach(l => { l.intensity = 0; });
+
+    // the cabin: sagging before it goes, then every board falls to the heap
+    const sag = smooth(clamp((s - 7.4) / 1.6));
+    boards.forEach((b, i) => {
+      _p.copy(b.p); _q.copy(b.q);
+      if (b.kind === 'roof' || b.kind === 'ridge') _p.y -= 0.3 * sag * (1 - Math.abs(b.p.z) / 3);
+      else if (b.kind !== 'trim') { _p.addScaledVector(b.out, 0.12 * sag * (b.p.y / 3)); }
+      if (s >= b.tc) {
+        const k = Math.pow(clamp((s - b.tc) / b.dur), 1.8);
+        const p0 = _p.clone(); _p.lerpVectors(p0, b.p1, k).addScaledVector(b.out, Math.sin(PI * k) * 0.8); _p.y += Math.sin(PI * k) * (b.kind === 'roof' ? -0.2 : 0.3);
+        _q.slerp(b.q1, k);
+        if (k >= 1) { _p.copy(b.p1); _q.copy(b.q1); }
+      }
+      _m.compose(_p, _q, b.s); cabin.setMatrixAt(i, _m);
+    });
+    cabin.instanceMatrix.needsUpdate = true;
+
+    // throw and smash
+    bottle.visible = s < T_HIT;
+    if (bottle.visible) {
+      const k = clamp(s / FLIGHT);
+      bottle.position.lerpVectors(THROW_FROM, IMPACT, k); bottle.position.y += 2.6 * Math.sin(PI * k);
+      bottle.rotation.set(0.3, Math.atan2(-THROW_DIR.z, THROW_DIR.x), -s * 9);
+      bottle.updateMatrixWorld(true); rag.getWorldPosition(tmp);
+      for (let i = 0; i < 3; i++) flame(tmp.x - THROW_DIR.x * 0.03 * i, tmp.y - 0.03, tmp.z - THROW_DIR.z * 0.03 * i, 0.22 + 0.05 * i, 0.045, 1, rand(i, 51), rand(i, 52));
+      const L = fireLights[0]; L.position.copy(tmp); L.intensity = 1.2 * flick(t, 0); L.distance = 8;
+      for (let i = 0; i < 10; i++) { const age = ((t * 3 + i / 10) % 1); ember(tmp.x - THROW_DIR.x * age * 0.8, tmp.y + age * 0.4, tmp.z - THROW_DIR.z * age * 0.8); }
+    }
+    const ia = s - T_HIT;
+    for (let i = 0; i < N_SHARD; i++) {
+      if (ia < 0) { _m.compose(v3.set(0, 0, 0), _q.identity(), _s.set(0, 0, 0)); shards.setMatrixAt(i, _m); continue; }
+      const a = rand(i, 61) * PI, sp = 1.5 + rand(i, 62) * 4, up = 0.5 + rand(i, 63) * 3, y0 = IMPACT.y, tl = (up + Math.sqrt(up * up + 2 * 9.81 * y0)) / 9.81, tt = Math.min(ia, tl);
+      _m.compose(v3.set(IMPACT.x + Math.cos(a) * sp * tt, Math.max(0.02, y0 + up * tt - 4.905 * tt * tt), IMPACT.z + 0.05 + Math.sin(a) * sp * tt), _q.setFromEuler(new T.Euler(tt * 20 * rand(i, 64), tt * 15, tt * 25 * rand(i, 65))), _s.set(1 + rand(i, 66), 1 + rand(i, 67), 1)); shards.setMatrixAt(i, _m);
+    }
+    shards.instanceMatrix.needsUpdate = true;
+    let nd = 0;
+    if (ia >= 0 && ia < 0.9) for (let i = 0; i < 260; i++) {
+      const a = rand(i, 71) * PI, sp = 1 + rand(i, 72) * 3, up = 0.5 + rand(i, 73) * 4.5, tt = ia, y = IMPACT.y + up * tt - 4.905 * tt * tt; if (y < 0) continue;
+      const along = (rand(i, 74) - 0.5) * 3 * tt;
+      dropPos.set([IMPACT.x + Math.cos(a) * sp * tt * 0.7 + along, y, IMPACT.z + 0.05 + Math.sin(a) * sp * tt * 0.6], nd * 3); nd++;
+    }
+    dropGeo.setDrawRange(0, nd); dropGeo.attributes.position.needsUpdate = true; drops.visible = nd > 0;
+    fuelPool.visible = ia >= 0 && s < 7; fuelPool.position.set(IGN.x, 0.02, D / 2 + 0.6); fuelPool.scale.set(3.2, 1, 1.6); fuelPool.material.opacity = 0.8 * (1 - smooth(clamp((s - 3) / 4)));
+    scorchA.visible = ia >= 0; scorchA.position.set(0, 0.025, 0.4); const sc = 2 + 8 * smooth(clamp((s - 3) / 8)); scorchA.scale.set(sc * 1.1, 1, sc * 0.9); scorchA.material.opacity = 0.9 * smooth(clamp((s - 2) / 3));
+
+    let burning = 0;
+    if (ia >= 0) {
+      // the fuel splash flares up the wall, then the pool at its foot burns down
+      for (let i = 0; i < 20; i++) { const age = (ia - 0.04 - i * 0.012) / (0.8 + rand(i, 81) * 0.5); if (age <= 0 || age >= 1) continue; const x = IGN.x + (rand(i, 82) - 0.5) * 2.2; puff(fireball, x, 0.4 + age * (2.4 + rand(i, 83) * 1.6), IGN.z + 0.35 + age * 0.4, 0.4 + age * 1.1, 0.9, 1.25 - age * 1.15, rand(i, 84), rand(i, 85) * 6); puff(smoke, x, 1.2 + age * 3.5, IGN.z + 0.5, 0.8 + age * 2.4, 0.6 * smooth(clamp((age - 0.35) / 0.4)), 0.8 * (1 - age), rand(i, 86), rand(i, 87) * 6); }
+      POOL.forEach((f, i) => { const g = smooth(clamp((ia - 0.06 - f.d / 8) / 0.2)) * (1 - smooth(clamp((s - 4.5) / 2.5))); const hj = 1 + 0.2 * Math.sin(t * 4.4 / Math.sqrt(f.h) + f.ph * 6.28); flame(f.p.x, 0.02, f.p.z, f.h * hj * (1 + 1.2 * Math.exp(-ia / 0.4)) * g, f.r, g, f.seed, f.ph); });
+      // flames on the building: each site lights as the front reaches it and grows; building flames die back as it comes down
+      const down = 1 - smooth(clamp((s - T_COLLAPSE - 0.15) / 0.8)), drop = smooth(clamp((s - T_COLLAPSE) / 1.2));
+      SITES.forEach((f, i) => {
+        if (!siteOn(f, s)) return; const age = s - f.ign; const g = smooth(clamp(age / 0.5)) * down * (1 - 0.72 * smooth(clamp((age - 2.0) / 1.6))); if (g < 0.01) return;
+        const grow = 1 + 0.7 * smooth(clamp((age - 1) / 2.5)), hj = 1 + 0.22 * Math.sin(t * 4 / Math.sqrt(f.h) + f.ph * 6.28) + 0.1 * (rand(Math.floor(t * 12), i) - 0.5);
+        flame(f.p.x, f.p.y - drop * f.p.y * 0.8, f.p.z, f.h * grow * hj * g, f.r * (0.9 + 0.3 * grow), g, f.seed, f.ph); burning++;
+      });
+      RUBBLE.forEach((f, i) => { if (s < f.t0) return; const g = smooth(clamp((s - f.t0) / 0.6)); const hj = 1 + 0.22 * Math.sin(t * 3.6 / Math.sqrt(f.h) + f.ph * 6.28); flame(f.p.x, f.p.y, f.p.z, f.h * hj * g * (1 + 0.8 * Math.exp(-(s - f.t0) / 1.2)), f.r, g, f.seed, f.ph); });
+      // smoke: rising from whatever is alight; a dust-and-smoke burst when it collapses
+      for (let i = 0; i < 170; i++) {
+        const life = 5.5, ph = ((s + i / 170 * life) % life), age = ph / life, ts = s - ph; if (ts < T_HIT + 0.5) continue;
+        let src;
+        if (ts < T_COLLAPSE + 0.4) { const st = SITES[(i * 37) % SITES.length]; if (!siteOn(st, ts)) continue; src = st.p; } else src = RUBBLE[(i * 11) % RUBBLE.length].p;
+        puff(smoke, src.x + age * 3 + Math.sin(age * 5 + i) * 0.5, src.y + 0.8 + age * 11, src.z - age * 1.5, 0.8 + age * 5.5, 0.85 * Math.pow(1 - age, 1.2) * Math.min(1, age * 10), 0.9 * Math.pow(1 - age, 2), rand(i, 88), rand(i, 89) * 6 + age);
+      }
+      const ca = s - T_COLLAPSE - 0.35;
+      if (ca > 0) for (let i = 0; i < 46; i++) {
+        const age = (ca - rand(i, 90) * 0.4) / 3.5; if (age <= 0 || age >= 1) continue;
+        const a = rand(i, 91) * 2 * PI, r = 1 + age * (3 + rand(i, 92) * 4);
+        puff(smoke, Math.cos(a) * r, 0.6 + age * (4 + rand(i, 93) * 6), Math.sin(a) * r * 0.8, 1.5 + age * 5, 0.8 * Math.pow(1 - age, 1.4) * Math.min(1, age * 20), 0.7 * (1 - age), rand(i, 94), rand(i, 95) * 6);
+        if (i < 30 && age < 0.5) puff(fireball, Math.cos(a) * r * 0.6, 1 + age * 9, Math.sin(a) * r * 0.5, 1.2 + age * 4, 0.9, 1.1 - age * 2, rand(i, 96), rand(i, 97) * 6);
+      }
+      // embers: a steady stream, and a shower when the roof goes
+      for (let i = 0; i < 260; i++) { const life = 2.0, age = ((t + i / 260 * life) % life) / life; const st = s < T_COLLAPSE + 0.5 ? SITES[(i * 13) % SITES.length] : RUBBLE[(i * 7) % RUBBLE.length]; if (st.ign !== undefined && !siteOn(st, s)) continue; ember(st.p.x + Math.sin(age * 6 + i) * 0.5 + age * 1.2, st.p.y + 0.4 + age * (3 + rand(i, 98) * 4), st.p.z + Math.cos(age * 5 + i) * 0.5); }
+      if (ca > 0 && ca < 3) for (let i = 0; i < 300; i++) { const a = rand(i, 99) * 2 * PI, sp = 2 + rand(i, 100) * 6, up = 5 + rand(i, 101) * 9, tt = ca * (0.6 + rand(i, 102) * 0.4); const y = 1.5 + up * tt - 2.5 * tt * tt; if (y < 0) continue; ember(Math.cos(a) * sp * tt, y, Math.sin(a) * sp * tt); }
+      // firelight
+      const frac = burning / SITES.length, flare = Math.max(Math.exp(-ia / 0.4), ca > 0 ? Math.exp(-ca / 0.6) : 0);
+      const L = fireLights;
+      L[0].position.set(IGN.x + 0.5, 1.4, D / 2 + 1.5); L[0].distance = 18; L[0].intensity = (1.2 + 2.2 * frac + 3 * flare) * flick(t, 1);
+      L[1].position.set(-W / 2 - 1.2, 2.0, 0.5); L[1].distance = 16; L[1].intensity = 2.4 * frac * flick(t, 2);
+      L[2].position.set(0.5, RIDGE + 1.5, 0.8); L[2].distance = 22; L[2].intensity = (2.6 * smooth(clamp((s - 5.5) / 2)) * down + 2.2 * (s > T_COLLAPSE ? smooth(clamp(ca / 0.5)) : 0)) * flick(t, 3);
+      L[3].position.set(W / 2 + 1.2, 2.0, 1.0); L[3].distance = 16; L[3].intensity = 2.0 * smooth(clamp((s - 4.5) / 2)) * flick(t, 4);
+      if (s > T_COLLAPSE) { L[0].position.set(0.5, 1.2, 2.5); L[0].intensity = (2.8 + 3 * flare) * flick(t, 1); L[1].intensity = 1.6 * flick(t, 2); L[3].intensity = 1.6 * flick(t, 4); }
+    }
+    tongues.count = nT; tongues.instanceMatrix.needsUpdate = true; tongueGeo.attributes.aData.needsUpdate = true;
+    smoke.mesh.count = nS; smoke.mesh.instanceMatrix.needsUpdate = true; smoke.mesh.geometry.attributes.aS.needsUpdate = true;
+    fireball.mesh.count = nF; fireball.mesh.instanceMatrix.needsUpdate = true; fireball.mesh.geometry.attributes.aS.needsUpdate = true;
+    emberGeo.setDrawRange(0, nE); emberGeo.attributes.position.needsUpdate = true;
+    embers.material.size = 0.06;
+
+    // camera
+    if (camMode === 'director') {
+      const c = camAt(t), d = c.d, target = v3.set(...c.tg);
+      const shake = s > T_COLLAPSE + 0.3 && s < T_COLLAPSE + 1.5 ? 0.12 * (1 - (s - T_COLLAPSE - 0.3) / 1.2) : 0;
+      camera.position.set(target.x + d * Math.sin(c.az) * Math.cos(c.el) + (rand(wall, 1) - 0.5) * shake, Math.max(0.3, target.y + d * Math.sin(c.el)) + (rand(wall, 2) - 0.5) * shake, target.z + d * Math.cos(c.az) * Math.cos(c.el));
+      camera.lookAt(target); controls.target.copy(target);
+    } else controls.update();
+    camera.fov = 32;
+    const camDist = camera.position.distanceTo(controls.target);
+    camera.near = Math.max(0.03, camDist * 0.01); camera.far = 3000;
+    camera.updateProjectionMatrix(); camera.updateMatrixWorld();
+    bgMat.uniforms.uX.value = 0; bloom.strength = 0.5; bloom.threshold = 0.78;
+
+    // callouts
+    const W2 = stage.clientWidth || innerWidth, H2 = stage.clientHeight || innerHeight;
+    const capR = ui.cap.getBoundingClientRect(), gR = document.querySelector('.gauges').getBoundingClientRect();
+    const band = videoMode ? [capR.bottom + 8, gR.top - 8] : [gR.bottom + 8, capR.top - 8];
+    callouts.forEach(c => {
+      const vis = pulse(t, c.t0, c.t0 + 0.3, c.t1 - 0.25, c.t1);
+      if (vis <= 0.01) { c.el.style.opacity = 0; return; }
+      c.a.obj.updateMatrixWorld(true);
+      tmp.copy(c.a.p); c.a.obj.localToWorld(tmp);
+      const pr = tmp.clone().project(camera);
+      if (pr.z > 1 || Math.abs(pr.x) > 1.2 || Math.abs(pr.y) > 1.2) { c.el.style.opacity = 0; return; }
+      const x = (pr.x * 0.5 + 0.5) * W2, y = (-pr.y * 0.5 + 0.5) * H2;
+      c.el.style.opacity = vis;
+      c.el.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`;
+      const w = c.tag.offsetWidth, h = c.tag.offsetHeight;
+      let left = x + c.dx - (c.dx < 0 ? w : c.dx === 0 ? w / 2 : 0), top = y + c.dy - h / 2;
+      left = clamp(left, 8, W2 - w - 8); top = clamp(top, band[0], Math.max(band[0], band[1] - h));
+      const ex = clamp(x, left, left + w) - x, ey = top + h / 2 - y;
+      c.line.style.width = Math.hypot(ex, ey) + 'px'; c.line.style.transform = `rotate(${Math.atan2(ey, ex)}rad)`;
+      c.tag.style.transform = `translate(${(left - x).toFixed(1)}px, ${(top - y).toFixed(1)}px)`;
+    });
+
+    // HUD: a time-lapse clock (one second of video is about a minute of burning)
+    let charred = 0; boards.forEach(b => { if (s - b.ign > T_CHAR * 0.6) charred++; });
+    ui.gStage.textContent = s < T_HIT ? 'Thrown' : s < T_COLLAPSE ? (burning / SITES.length > 0.7 ? 'Engulfed' : 'Spreading') : s < T_COLLAPSE + 2 ? 'Collapse' : 'Rubble';
+    ui.gBelt.textContent = Math.round(100 * Math.min(1, s < T_COLLAPSE ? burning / SITES.length : 1)) + '%';
+    ui.gRate.textContent = Math.round(100 * charred / NB) + '%';
+    ui.gVel.textContent = s < T_HIT ? '0:00' : fmt(s < 2 ? (s - T_HIT) : (s - T_HIT) * 60);
+    let ci2 = CAPTIONS.findIndex(c => t >= c[0] && t < c[1]); if (ci2 < 0) ci2 = 0;
+    if (ci2 !== lastCap) {
+      lastCap = ci2; const c = CAPTIONS[ci2];
+      const apply = () => { ui.capStep.textContent = c[2]; ui.capStep.className = 'step'; ui.capText.textContent = c[3]; ui.cap.classList.remove('swap'); };
+      if (videoMode) apply(); else { ui.cap.classList.add('swap'); setTimeout(apply, 180); }
+    }
+    ui.fill.style.width = (t / LOOP * 100) + '%';
+    if (document.activeElement !== ui.scrub) ui.scrub.value = Math.round(t / LOOP * 1000);
+    ui.time.textContent = t.toFixed(1) + ' / ' + LOOP + ' s';
+  }
+
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.min(0.05, (now - last) / 1000); last = now;
+    if (!videoMode) {
+      if (playing) t = (t + dt * speed) % LOOP;
+      update(t, now / 1000);
+      composer.render();
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+  window.__seek = (time, opts = {}) => { playing = false; setPlayIcon(); t = time; update(t, videoMode ? time : 0); composer.render(); };
+  window.__video = (dpr = 3) => {
+    videoMode = true; document.body.classList.add('video');
+    renderer.setPixelRatio(dpr); composer.setPixelRatio(dpr); resize();
+  };
+  window.__ready = true;
+})();
+</script>

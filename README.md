@@ -119,3 +119,11 @@ It runs on a 20-second loop at dusk:
 - **Napalm:** a jet drops two canisters on a base. A rolling wall of fire runs along a 125 m swath, followed by a long, smoky burn.
 
 `fire-short.mp4` is the 1080×1920 Shorts render.
+
+# Cabin Fire
+
+`cabinfire.html` uses the same fire system as `fire.html`. A Molotov hits the base of a code-built wooden cabin, made of about 130 individual boards, posts and roof strips. The fire climbs the wall and spreads around the cabin and onto the roof.
+
+A char shader blackens each board in noisy patches from its ignition time and height, with glowing ember cracks. As flames burn out an area they move upward, leaving the blackened wood visible. The roof sags, then every board falls into a burning heap.
+
+The loop is 15 seconds: a real-time throw, a slow-motion smash, then a time-lapse burn with roughly one second of video per minute of fire. `cabinfire-short.mp4` is the 1080×1920 Shorts render.
