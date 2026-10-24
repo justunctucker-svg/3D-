@@ -77,3 +77,20 @@ Open `revolver.html` in a browser. Libraries load from cdnjs and jsDelivr.
 - The engine catches fire. The bomber trails smoke, rolls into a dive and explodes on impact.
 
 `dogfight-short.mp4` is the 1080×1920 Shorts render.
+
+# Torpedo Attack
+
+`torpedo.html` is built entirely in code (no downloaded models) and runs on a 53-second loop:
+
+- **The ship:** a destroyer whose hull is lofted from station sections, with gun houses, a bridge, funnels, masts and boats.
+- **The plane:** an Avenger-style torpedo bomber carrying a torpedo with contra-rotating screws.
+- **The ocean:** a Gerstner-wave shader with ripples, sky reflection, sun glint and foam drawn live on a canvas (ship wake, Kelvin arms, the torpedo's bubble trail, splashes).
+- **The attack:**
+  - a low attack run and the drop
+  - an underwater chase of the torpedo
+  - the hit: a water column, spray and a torn hole
+- **The sinking:**
+  - an x-ray cutaway with flood jets pouring through the hole as compartments fill one after another
+  - the ship lists, settles and plunges bow-first
+
+`torpedo-short.mp4` is the 1080×1920 Shorts render.
