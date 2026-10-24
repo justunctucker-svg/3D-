@@ -65,3 +65,15 @@ Open `revolver.html` in a browser. Libraries load from cdnjs and jsDelivr.
 - **Airdrop:** the rear ramp lowers and an A-22 cargo bundle rolls out. Its pilot chute pulls out the main canopy, and the load lands.
 
 `osprey-short.mp4` is the 1080×1920 Shorts render.
+
+# SM.79 vs P-40
+
+`dogfight.html` uses helijah's “Savoia Marchetti SM 79 Sparviero” and “Curtiss P-40 Warhawk” models (Sketchfab Standard license). We split out the props and removed the landing gear. The SM.79's engine detail was also trimmed so both models fit in one page. It runs on a 40-second loop:
+
+- An SM.79 bombs a desert airfield, and the hangars and fuel tanks burn.
+- A P-40 closes from behind.
+- **Cockpit view:** through the P-40's reflector gunsight as it fires its six .50s.
+- **Slow motion:** rounds tear into the bomber's right engine and wing, leaving holes, sparks and debris and pulling a panel off.
+- The engine catches fire. The bomber trails smoke, rolls into a dive and explodes on impact.
+
+`dogfight-short.mp4` is the 1080×1920 Shorts render.
