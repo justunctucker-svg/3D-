@@ -94,3 +94,17 @@ Open `revolver.html` in a browser. Libraries load from cdnjs and jsDelivr.
   - the ship lists, settles and plunges bow-first
 
 `torpedo-short.mp4` is the 1080×1920 Shorts render.
+
+# AK-47 X-Ray
+
+`ak47.html` uses the “Low Poly AK47” model by [AdamKokrito](https://sketchfab.com/3d-models/low-poly-ak47-54b71f2d288d4c9692269fb56a5874da) (Sketchfab Standard license), whose magazine, charging handle, trigger and safety come as separate parts. It runs on a 20-second loop:
+
+- **Reload:** the empty magazine rocks out and drops, and a new one hooks in at the front and rocks back.
+- **Charge and fire:** the rifle is charged, then fires five rounds at a steel plate, with brass ejecting.
+- **X-ray slow-motion cycle:**
+  1. the hammer falls
+  2. the bullet and gas travel down the bore, and gas goes up the port
+  3. the long-stroke piston drives the carrier back
+  4. the rotating bolt unlocks, the case ejects, and the spring feeds the next round
+
+`ak47-short.mp4` is the 1080×1920 Shorts render.
