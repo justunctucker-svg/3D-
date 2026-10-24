@@ -41,3 +41,16 @@ Open `revolver.html` in a browser. Libraries load from cdnjs and jsDelivr.
 # SIG XM250 X-Ray
 
 `xm250.html` covers the XM250 light machine gun on a 56-second loop: the bipod deploying; a full reload (feed cover, 100-round pouch, belt on the feed tray, charging handle locking the open bolt back); an x-ray slow-motion firing cycle (sear, recoil spring, bolt carrier stripping and chambering a round, short-stroke gas piston, ejection and belt advance); the 6.8×51 hybrid case; full-auto bursts at a plastic range dummy; and a slow-motion bullet chase. `xm250-short.mp4` is the 1080×1920 Shorts render.
+
+# Mk 2 Grenade X-Ray
+
+`grenade.html` uses the textured “Grenade” model by [Kyle Shotter](https://sketchfab.com/3d-models/grenade-5c3805309abc4b1ebf8ca9bd3f836615) (CC BY 4.0), embedded in the page with its textures downsized. It runs on a 58-second loop:
+
+- **Outside:** the cast-iron body, the fuze, the safety lever ("spoon"), the safety pin and the pull ring.
+- **X-ray:** the TNT filler, the cocked striker and its spring, the primer, the delay column and the detonator.
+- **Arming:** a gloved hand grips the lever, then the other hand pulls the pin.
+- **Throw (slow motion, x-ray):** the striker throws the lever off and fires the primer, which lights the delay.
+- **Flight and delay:** a real-time flight and roll, then an x-ray close-up as the delay burns down to the detonator.
+- **Detonation:** a high-speed-camera view of the burst, with fragments hitting a range dummy and two plywood targets.
+
+`grenade-short.mp4` is the 1080×1920 Shorts render.
