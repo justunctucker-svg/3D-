@@ -54,3 +54,14 @@ Open `revolver.html` in a browser. Libraries load from cdnjs and jsDelivr.
 - **Detonation:** a high-speed-camera view of the burst, with fragments hitting a range dummy and two plywood targets.
 
 `grenade-short.mp4` is the 1080×1920 Shorts render.
+
+# V-22 Osprey
+
+`osprey.html` uses the “Bell Boeing V22 Osprey” model by [helijah](https://sketchfab.com/3d-models/bell-boeing-v22-osprey-cd5134ab74404e54bc548e381d09ad56) (Sketchfab Standard license). We split its merged meshes into the fuselage, the tilting nacelles, the proprotors, the rear ramp and the landing gear, then repainted it. It runs on a 35-second loop:
+
+- **Takeoff:** a helicopter-mode takeoff with rotor-wash dust.
+- **Conversion:** the gear retracts and the nacelles tilt from 90° to 0°. An x-ray pass shows the engines, the proprotor gearboxes, the interconnect driveshaft through the wing and the mid-wing gearbox.
+- **Cruise:** airplane-mode flight.
+- **Airdrop:** the rear ramp lowers and an A-22 cargo bundle rolls out. Its pilot chute pulls out the main canopy, and the load lands.
+
+`osprey-short.mp4` is the 1080×1920 Shorts render.
