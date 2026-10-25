@@ -692,7 +692,7 @@
 
   function updateFlow(t, X) {
     const A = tab(flowTab, t), flow = flowAt(t), ign = ignAt(t);
-    const vis = smooth(span(t, 4.6, 6.4));
+    const vis = smooth(span(t, 4.6, 6.4)) * (1 - 0.6 * smooth(span(t, 37, 37.3)));
     const hotFront = (t - 18.25) * 2.6;                               // metres behind the nozzles that the hot gas has reached
     const coreGain = lerp(0.8, 1.0, X) * vis, byGain = lerp(1.0, 0.3, X) * vis;
     const tau = 0.24 * flow, wm = clamp(camera.position.distanceTo(vA.set(0, Y0, 0)) / 5.5, 1, 2.4);

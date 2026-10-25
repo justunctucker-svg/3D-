@@ -127,3 +127,27 @@ It runs on a 20-second loop at dusk:
 A char shader blackens each board in noisy patches from its ignition time and height, with glowing ember cracks. As flames burn out an area they move upward, leaving the blackened wood visible. The roof sags, then every board falls into a burning heap.
 
 The loop is 15 seconds: a real-time throw, a slow-motion smash, then a time-lapse burn with roughly one second of video per minute of fire. `cabinfire-short.mp4` is the 1080×1920 Shorts render.
+
+# Turbofan Jet Engine
+
+`jet-engine/` is a 40-second vertical explainer for *Inside the Mechanism*. It is a procedural Three.js scene (r128, installed from npm), and every piece of geometry is built in code. The engine is a two-spool turbofan on a test stand on a desert floor. Its main parts:
+
+- a 22-blade wide-chord fan with a spiral-painted spinner, plus outlet guide vanes
+- a 3-stage booster
+- a 9-stage HP compressor whose blades shrink toward the back
+- an annular combustor with 18 fuel nozzles, cut away on the near side
+- 2 HP and 4 LP turbine stages
+- concentric HP and LP shafts and a tail cone
+
+In X-ray the casings turn to cyan fresnel glass with edge lines, while the rotating parts stay solid. Instanced streaks show the airflow: pale blue for bypass and core air, turning orange to yellow-white after ignition. The overlay is HTML: title, specs line, step label and caption, callout chips, and a stats bar showing stage, HP RPM, air temperature and thrust (approximate values only).
+
+Everything is a pure function of the time `t`, so any frame can be rendered on its own:
+
+```bash
+cd jet-engine
+npm install                 # three@0.128.0
+npm run stills              # 4 approval stills → stills/
+bash render-all.sh          # 1200 PNG frames → frames/, then /output/jet-engine.mp4
+```
+
+`render.js` drives the pre-installed Playwright Chromium (SwiftShader WebGL) at 360×640 CSS px ×3. It waits two animation frames before each screenshot. `check-frames.py` re-renders any frame where the overlay didn't paint. Opening `index.html` through any local web server plays the loop live (space or click to pause, ←/→ to seek). Fonts are Barlow Condensed and IBM Plex Mono, served locally under the SIL Open Font License. `jet-engine-short.mp4` is the 1080×1920 render.
