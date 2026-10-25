@@ -163,3 +163,29 @@ bash add-audio.sh           # redo only the sound on /output/jet-engine-silent.m
 - a low hit with a reverb tail on the final card
 
 `add-audio.sh` normalizes the sound to -14 LUFS / -1 dBTP and muxes it as AAC. `jet-engine-short.mp4` is the 1080×1920 render with sound.
+
+# Rocket Engine
+
+`rocket-engine/` is the matching *Inside the Mechanism* explainer: 45 seconds, 1080×1920. It reuses the jet engine's overlay, fonts, X-ray look and Playwright pipeline. Everything is procedural geometry for a liquid-fuel engine on a vertical test stand:
+
+- a regeneratively cooled chamber and a Rao-style bell nozzle (lathe contour, tube-wall texture, hat-band stiffeners)
+- an injector dome
+- a turbopump with oxidizer pump, fuel pump and turbine on one shaft, plus a gas generator and turbine exhaust duct
+- feed lines, gimbal actuators, and a stage with RP-1 and LOX tanks
+
+The video follows the beats below:
+
+- **Hook (0:00):** ignition, seen looking up into the bell.
+- **Hero (0:03):** the engine firing on the stand.
+- **X-ray walk-through (0:08–0:34):** tanks, then pumps, then combustion with a flash and slow motion, then throat and nozzle with a Mach 1 marker and a live gas-speed chip.
+- **The push (0:34):** action/reaction arrows, then an Earth vs vacuum split screen. In vacuum the plume balloons out with no shock diamonds.
+- **Loop:** the final shot returns to the hook camera before ignition. Both shots share one ignition clock (s = t, or t − 45), so the last frame flows into the first.
+
+```bash
+cd rocket-engine
+npm install                 # three@0.128.0
+npm run stills              # 5 approval stills → stills/
+bash render-all.sh          # 1350 PNG frames → frames/ (4 interleaved processes), checks, /output/rocket-engine.mp4
+```
+
+All readouts are approximate and are not tied to any real engine. `rocket-engine-short.mp4` is the render, with no audio.
