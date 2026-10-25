@@ -34,13 +34,16 @@ const server = http.createServer((req, res) => {
   page.on('pageerror', e => console.log('page error:', e.message));
   page.on('console', m => { if (m.type() === 'error' || m.type() === 'warning') console.log('console:', m.text()); });
   await page.goto(`http://127.0.0.1:${server.address().port}/index.html?render`, { waitUntil: 'load' });
-  await page.waitForFunction(() => window.__ready === true, null, { timeout: 180000 });
+  await page.waitForFunction(() => window.__ready === true, null, { timeout: 300000 });
+  page.setDefaultTimeout(180000);
+  // warm-up: compile every shader variant (X-ray, split screen) before the first captured frame
+  for (const t of [10, 21.6, 38]) await page.evaluate(tt => window.__render(tt), t);
   const t0 = Date.now();
   for (const [i, job] of jobs.entries()) {
     await page.evaluate(t => window.__render(t), job.t);
     // let the compositor present both the WebGL canvas and the updated HTML overlay before capturing
     await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
-    await page.screenshot({ path: path.join(outDir, job.file) });
+    await page.screenshot({ path: path.join(outDir, job.file), timeout: 180000 });
     if (i % 30 === 0 || i === jobs.length - 1) console.log(`${job.file}  t=${job.t.toFixed(2)}s  ${((Date.now() - t0) / (i + 1) / 1000).toFixed(2)} s/frame`);
   }
   await browser.close();
