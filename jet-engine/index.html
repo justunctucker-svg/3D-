@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Turbofan Jet Engine · Inside the Mechanism</title>
+<link rel="stylesheet" href="fonts/fonts.css">
+<style>
+  /* Designed for a 360 × 640 CSS-pixel viewport rendered at 3× (1080 × 1920). Safe margin: 20 CSS px (60 px) all round,
+     with the stats bar kept above the bottom ~150 CSS px and clear of the Shorts action buttons on the right. */
+  :root {
+    --ink: #f2efe8;
+    --dim: rgba(242, 239, 232, 0.55);
+    --orange: #ff9a3c;
+    --cyan: #5fd8ff;
+    --chip: rgba(9, 13, 19, 0.82);
+    --bar: rgba(8, 11, 16, 0.72);
+  }
+  html, body { margin: 0; height: 100%; background: #05070a; overflow: hidden; }
+  /* The 360 × 640 frame is scaled to fit the window when the page is opened directly; the renderer uses it at 1:1. */
+  #frame { position: absolute; left: 0; top: 0; width: 360px; height: 640px; overflow: hidden; transform-origin: 0 0; background: #10151c; }
+  #stage { position: absolute; inset: 0; }
+  #stage canvas { display: block; width: 100%; height: 100%; }
+  .ui { position: absolute; inset: 0; pointer-events: none; color: var(--ink); }
+  .head { position: absolute; left: 20px; top: 22px; right: 20px; }
+  .title { font: 700 35px/0.9 'Barlow Condensed', sans-serif; letter-spacing: 0.01em; text-transform: uppercase; margin: 0; text-shadow: 0 1px 6px rgba(0, 0, 0, 0.45); }
+  .specs { margin-top: 7px; font: 500 7.6px/1.2 'IBM Plex Mono', monospace; letter-spacing: 0.08em; color: var(--dim); text-transform: uppercase; }
+  .step { margin-top: 15px; height: 12px; font: 600 9.6px/12px 'IBM Plex Mono', monospace; letter-spacing: 0.1em; color: var(--orange); text-transform: uppercase; }
+  .step.x { color: var(--cyan); }
+  .caption { margin-top: 4px; max-width: 320px; font: 600 19.5px/1.12 'Barlow Condensed', sans-serif; color: #fff; text-shadow: 0 1px 8px rgba(0, 0, 0, 0.6), 0 0 2px rgba(0, 0, 0, 0.5); }
+  .badge { position: absolute; right: 20px; top: 28px; padding: 3px 7px 3px 8px; border: 1px solid var(--cyan); color: var(--cyan); font: 600 8px/1 'IBM Plex Mono', monospace; letter-spacing: 0.14em; text-shadow: 0 0 6px rgba(95, 216, 255, 0.6); box-shadow: 0 0 8px rgba(95, 216, 255, 0.25), inset 0 0 6px rgba(95, 216, 255, 0.15); background: rgba(4, 16, 28, 0.55); }
+  .bar { position: absolute; left: 20px; right: 56px; bottom: 150px; padding: 7px 10px 8px; background: var(--bar); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 3px; display: grid; grid-template-columns: 1.25fr 1fr 1fr 0.9fr; column-gap: 8px; }
+  .bar .k { font: 500 6.4px/1 'IBM Plex Mono', monospace; letter-spacing: 0.12em; color: var(--dim); text-transform: uppercase; }
+  .bar .v { margin-top: 4px; font: 600 10.4px/1 'IBM Plex Mono', monospace; color: var(--ink); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .approx { position: absolute; right: 7px; top: -9px; padding: 1px 4px; font: 600 5.6px/1.3 'IBM Plex Mono', monospace; letter-spacing: 0.14em; color: rgba(242, 239, 232, 0.75); background: rgba(8, 11, 16, 0.85); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 2px; }
+  .callout { position: absolute; left: 0; top: 0; opacity: 0; }
+  .callout .line { position: absolute; left: 0; top: 0; height: 1px; background: rgba(255, 255, 255, 0.75); transform-origin: 0 50%; }
+  .callout .dot { position: absolute; left: -2.5px; top: -2.5px; width: 5px; height: 5px; border-radius: 50%; background: #fff; box-shadow: 0 0 5px rgba(255, 255, 255, 0.7); }
+  .callout .tag { position: absolute; left: 0; top: 0; padding: 3px 6px; white-space: nowrap; font: 600 7.4px/1 'IBM Plex Mono', monospace; letter-spacing: 0.1em; color: var(--ink); background: var(--chip); border: 1px solid rgba(255, 255, 255, 0.18); border-radius: 2px; }
+  .callout.x .line { background: rgba(95, 216, 255, 0.85); }
+  .callout.x .dot { background: var(--cyan); box-shadow: 0 0 6px rgba(95, 216, 255, 0.9); }
+  .callout.x .tag { border-color: rgba(95, 216, 255, 0.55); }
+</style>
+</head>
+<body>
+<div id="frame">
+<div id="stage"></div>
+<div class="ui">
+  <div id="callouts"></div>
+  <div class="head">
+    <h1 class="title">Turbofan<br>Jet Engine</h1>
+    <div class="specs" id="specs">Two-spool turbofan · bypass air · core air</div>
+    <div class="step" id="step"></div>
+    <div class="caption" id="caption"></div>
+  </div>
+  <div class="badge" id="badge">X-RAY VIEW</div>
+  <div class="bar" id="bar">
+    <span class="approx">APPROX.</span>
+    <div><div class="k">Stage</div><div class="v" id="vStage">—</div></div>
+    <div><div class="k">RPM</div><div class="v" id="vRpm">0</div></div>
+    <div><div class="k">Air temp</div><div class="v" id="vTemp">15 °C</div></div>
+    <div><div class="k">Thrust</div><div class="v" id="vThrust">0 kN</div></div>
+  </div>
+</div>
+</div>
+<script src="node_modules/three/build/three.min.js"></script>
+<script src="node_modules/three/examples/js/shaders/CopyShader.js"></script>
+<script src="node_modules/three/examples/js/shaders/LuminosityHighPassShader.js"></script>
+<script src="node_modules/three/examples/js/shaders/GammaCorrectionShader.js"></script>
+<script src="node_modules/three/examples/js/postprocessing/EffectComposer.js"></script>
+<script src="node_modules/three/examples/js/postprocessing/ShaderPass.js"></script>
+<script src="node_modules/three/examples/js/postprocessing/RenderPass.js"></script>
+<script src="node_modules/three/examples/js/postprocessing/UnrealBloomPass.js"></script>
+<script src="engine.js"></script>
+</body>
+</html>

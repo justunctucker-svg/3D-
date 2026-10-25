@@ -1,0 +1,12 @@
+{
+  "name": "jet-engine-explainer",
+  "private": true,
+  "description": "Inside the Mechanism: Turbofan Jet Engine (procedural Three.js, rendered frame by frame with Playwright)",
+  "scripts": {
+    "stills": "node render.js --stills 2,7.5,20.5,34 --out stills",
+    "frames": "bash render-all.sh"
+  },
+  "dependencies": {
+    "three": "0.128.0"
+  }
+}
