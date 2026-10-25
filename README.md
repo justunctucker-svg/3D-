@@ -185,7 +185,18 @@ The video follows the beats below:
 cd rocket-engine
 npm install                 # three@0.128.0
 npm run stills              # 5 approval stills → stills/
-bash render-all.sh          # 1350 PNG frames → frames/ (4 interleaved processes), checks, /output/rocket-engine.mp4
+bash render-all.sh          # 1350 PNG frames → frames/ (4 interleaved processes), checks, silent MP4, then sound → /output/rocket-engine.mp4
+bash add-audio.sh           # redo only the sound on /output/rocket-engine-silent.mp4
 ```
 
-All readouts are approximate and are not tied to any real engine. `rocket-engine-short.mp4` is the render, with no audio.
+`audio.py` synthesizes the sound from the same timeline:
+
+- cryogenic pings, LOX venting and the turbopump spin-up
+- ignition crack and whump, then the roar with crackle
+- a tape-stop rewind into X-ray, tank gurgle and pump whine
+- a teaser riser, a flash-cut boom with a slow-motion low end, and a rising nozzle whoosh with a Mach 1 crack
+- the push, then the split screen, where the roar moves to the Earth side and the vacuum side keeps only a felt rumble
+
+The final shot and the opening are cut from one continuous ignition buffer, the filters are circular, and the track has no fades, so the sound loops seamlessly too. `master.py` sets loudness with a fixed gain and a memoryless soft clip (about -15 LUFS, -1 dBFS peak) rather than a time-varying limiter, which would shift the seam.
+
+All readouts are approximate and are not tied to any real engine. `rocket-engine-short.mp4` is the render with sound.
