@@ -147,7 +147,19 @@ Everything is a pure function of the time `t`, so any frame can be rendered on i
 cd jet-engine
 npm install                 # three@0.128.0
 npm run stills              # 4 approval stills → stills/
-bash render-all.sh          # 1200 PNG frames → frames/, then /output/jet-engine.mp4
+bash render-all.sh          # 1200 PNG frames → frames/, silent MP4, then sound → /output/jet-engine.mp4
+bash add-audio.sh           # redo only the sound on /output/jet-engine-silent.mp4
 ```
 
-`render.js` drives the pre-installed Playwright Chromium (SwiftShader WebGL) at 360×640 CSS px ×3. It waits two animation frames before each screenshot. `check-frames.py` re-renders any frame where the overlay didn't paint. Opening `index.html` through any local web server plays the loop live (space or click to pause, ←/→ to seek). Fonts are Barlow Condensed and IBM Plex Mono, served locally under the SIL Open Font License. `jet-engine-short.mp4` is the 1080×1920 render.
+`render.js` drives the pre-installed Playwright Chromium (SwiftShader WebGL) at 360×640 CSS px ×3. It waits two animation frames before each screenshot. `check-frames.py` re-renders any frame where the overlay didn't paint. Opening `index.html` through any local web server plays the loop live (space or click to pause, ←/→ to seek). Fonts are Barlow Condensed and IBM Plex Mono, served locally under the SIL Open Font License.
+
+`audio.py` synthesizes the sound with numpy from the same timeline:
+
+- desert wind and a starter hiss
+- a turbine whine and fan buzz that follow the HP RPM, plus intake rush that is muffled in X-ray
+- a scan whoosh when X-ray turns on and off, and UI ticks on step changes and callouts
+- fuel hiss, the ignition whoomp and a combustion rumble
+- jet roar with crackle for the thrust shot
+- a low hit with a reverb tail on the final card
+
+`add-audio.sh` normalizes the sound to -14 LUFS / -1 dBTP and muxes it as AAC. `jet-engine-short.mp4` is the 1080×1920 render with sound.

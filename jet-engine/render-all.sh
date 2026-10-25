@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # Renders all 1200 frames (40 s × 30 fps) in parallel chunks, re-renders any frame whose overlay failed to paint,
-# then encodes the H.264 MP4. Usage: bash render-all.sh   (JOBS=4 and OUT=/output/jet-engine.mp4 by default)
+# encodes the H.264 video, then adds the synthesized sound (add-audio.sh).
+# Usage: bash render-all.sh   (JOBS=4, SILENT=/output/jet-engine-silent.mp4 and OUT=/output/jet-engine.mp4 by default)
 set -euo pipefail
 cd "$(dirname "$0")"
 JOBS=${JOBS:-4}
 TOTAL=1200
 OUT=${OUT:-/output/jet-engine.mp4}
+SILENT=${SILENT:-/output/jet-engine-silent.mp4}
 
 rm -rf frames && mkdir -p frames "$(dirname "$OUT")"
 PER=$(( (TOTAL + JOBS - 1) / JOBS ))
@@ -23,5 +25,6 @@ for pass in 1 2 3; do
 done
 
 ffmpeg -y -loglevel error -framerate 30 -i frames/frame_%05d.png \
-  -c:v libx264 -preset slow -crf 18 -pix_fmt yuv420p -movflags +faststart -an "$OUT"
-echo "wrote $OUT"
+  -c:v libx264 -preset slow -crf 18 -pix_fmt yuv420p -movflags +faststart -an "$SILENT"
+echo "wrote $SILENT"
+bash add-audio.sh "$SILENT" "$OUT"
