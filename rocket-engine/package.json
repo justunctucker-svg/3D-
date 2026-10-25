@@ -1,0 +1,12 @@
+{
+  "name": "rocket-engine-explainer",
+  "private": true,
+  "description": "Inside the Mechanism: Rocket Engine (procedural Three.js, rendered frame by frame with Playwright)",
+  "scripts": {
+    "stills": "node render.js --stills 0.8,11.5,24,31,43.5 --out stills",
+    "frames": "bash render-all.sh"
+  },
+  "dependencies": {
+    "three": "0.128.0"
+  }
+}
