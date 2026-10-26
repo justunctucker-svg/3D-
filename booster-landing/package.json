@@ -1,0 +1,12 @@
+{
+  "name": "booster-landing-explainer",
+  "private": true,
+  "description": "NovexDynamics: Booster Landing (procedural Three.js, rendered frame by frame with Playwright)",
+  "scripts": {
+    "stills": "node render.js --stills 1.0,11.4,15.8,22.2 --out stills",
+    "frames": "bash render-all.sh"
+  },
+  "dependencies": {
+    "three": "0.128.0"
+  }
+}
