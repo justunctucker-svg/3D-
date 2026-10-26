@@ -1,0 +1,12 @@
+{
+  "name": "ejection-seat-explainer",
+  "private": true,
+  "description": "Inside the Mechanism: Ejection Seat (procedural Three.js, rendered frame by frame with Playwright)",
+  "scripts": {
+    "stills": "node render.js --stills 1.3,14.6,19.3,21.2 --out stills",
+    "frames": "bash render-all.sh"
+  },
+  "dependencies": {
+    "three": "0.128.0"
+  }
+}
