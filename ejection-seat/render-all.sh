@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Renders all 1350 frames (45 s × 30 fps) with JOBS parallel Chromium processes (frames interleaved so the heavy
-# split-screen section is shared), re-renders any frame whose overlay failed to paint, encodes the H.264 video, then adds
-# the synthesized sound (add-audio.sh). Usage: bash render-all.sh   (JOBS=4, SILENT=/output/rocket-engine-silent.mp4, OUT=/output/rocket-engine.mp4)
+# Renders all 660 frames (22 s × 30 fps) with JOBS parallel Chromium processes (frames interleaved so the heavy
+# slow-motion sections are shared), re-renders any frame whose overlay failed to paint, encodes the H.264 video, then adds
+# the synthesized sound (add-audio.sh). Usage: bash render-all.sh   (JOBS=4, SILENT=/output/ejection-seat-silent.mp4, OUT=/output/ejection-seat.mp4)
 set -euo pipefail
 cd "$(dirname "$0")"
 JOBS=${JOBS:-4}
-TOTAL=1350
-OUT=${OUT:-/output/rocket-engine.mp4}
-SILENT=${SILENT:-/output/rocket-engine-silent.mp4}
+TOTAL=660
+OUT=${OUT:-/output/ejection-seat.mp4}
+SILENT=${SILENT:-/output/ejection-seat-silent.mp4}
 
 rm -rf frames && mkdir -p frames "$(dirname "$OUT")"
 for ((j = 0; j < JOBS; j++)); do

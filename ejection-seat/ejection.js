@@ -404,7 +404,7 @@
     return f;
   }
   //                         t:  pull close-up (real time)   pull      canopy      catapult+rocket  stabilize          landing
-  const mainTau = monotone([2.7, 5.0, 5.7, 6.0, 10.0, 15.0, 17.0, 18.3, 21.6], [-2.3, -0.05, 0.0, 0.008, 0.16, 0.42, 0.98, 1.80, 5.1]);
+  const mainTau = monotone([2.7, 5.0, 5.7, 6.0, 10.0, 13.0, 15.0, 16.0, 17.0, 18.3, 21.6], [-2.3, -0.05, 0.0, 0.008, 0.16, 0.32, 0.42, 0.50, 0.98, 1.80, 5.1]);
   const REW0 = 2.0, REW1 = 2.7, END_CUT = 21.6;
   const isHook = t => t < REW0 || t >= END_CUT;
   const hookH = t => (t >= END_CUT ? t - DURATION : t);

@@ -3,8 +3,8 @@
 # the silent render. Usage: bash add-audio.sh [silent.mp4] [out.mp4]
 set -euo pipefail
 cd "$(dirname "$0")"
-IN=${1:-/output/rocket-engine-silent.mp4}
-OUT=${2:-/output/rocket-engine.mp4}
+IN=${1:-/output/ejection-seat-silent.mp4}
+OUT=${2:-/output/ejection-seat.mp4}
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
