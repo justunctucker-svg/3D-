@@ -260,13 +260,23 @@ That burn takes the speed from about 970 km/h to exactly 0 at leg contact. The e
 
 The big SPEED counter shows that real speed, and the video plays the flight clock at different rates: slow-motion in the hook, time-lapse through the coast and fall, and close to real time for the burn and touchdown.
 
-The hook (0–2 s) opens on the last seconds of the landing burn at 0.7×. A VHS-style rewind then takes the story back to separation. The last 0.4 s cut back to the hook camera on the same clock, so the video loops. There is no audio.
+The hook (0–2 s) opens on the last seconds of the landing burn at 0.7×. A VHS-style rewind then takes the story back to separation. The last 0.4 s cut back to the hook camera on the same clock, so the video loops. `audio.py` builds sound on the same flight clock:
+
+- the landing roar, dust blast and a radar-altimeter beep in the hook
+- a tape rewind, a low hum at the edge of space, the separation clunk and the upper stage's engine pulling away
+- cold-gas thruster puffs in step with the flip, and the muffled boostback burn
+- grid-fin hydraulics, and re-entry wind that follows dynamic pressure (air density × speed²)
+- the relight, then the roar (muffled in the X-ray view) under beeps that speed up as the ground nears
+- the pneumatic leg deploy, the touchdown thud and shutdown, a "landed" chime, then cooling-metal pings under a closing chord
+
+As with the earlier videos, the sound is loop-safe and has no fades.
 
 ```bash
 cd booster-landing
 npm install                 # three@0.128.0
 npm run stills              # 4 approval stills → stills/
-bash render-all.sh          # 720 frames → frames/, checks, then the silent MP4 → /output/booster-landing.mp4
+bash render-all.sh          # 720 frames → frames/, checks, silent MP4, then sound → /output/booster-landing.mp4
+bash add-audio.sh           # redo only the sound on /output/booster-landing-silent.mp4
 ```
 
-All readouts are approximate and are not tied to any real vehicle. `booster-landing-short.mp4` is the render.
+All readouts are approximate and are not tied to any real vehicle. `booster-landing-short.mp4` is the render with sound.
