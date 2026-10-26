@@ -240,3 +240,33 @@ bash add-audio.sh           # redo only the sound on /output/ejection-seat-silen
 ```
 
 All readouts are approximate and are not tied to any real seat or aircraft. `ejection-seat-short.mp4` is the render with sound.
+
+# Booster Landing
+
+`booster-landing/` is a 24-second NovexDynamics explainer, built on the same pipeline, overlay, fonts and X-ray look as the jet engine, rocket engine and ejection seat. Everything is procedural:
+
+- a generic, unmarked reusable first stage with nine engines, four lattice grid fins and four landing legs with struts
+- an upper stage that separates and flies on under its own engine
+- a sky shader that draws the curved planet, limb glow and stars from orbit and fades to pale blue near the ground, plus a flat desert and a concrete landing pad
+
+A small flight profile drives the motion and the readouts:
+
+- separation at about 70 km, a cold-gas flip and a boostback burn on three engines
+- an apogee of about 100 km, with the grid fins deployed after the boostback
+- a fall through thickening air at up to about 4,300 km/h
+- a single-engine landing burn at constant deceleration (14 m/s², about 2.4× the booster's weight)
+
+That burn takes the speed from about 970 km/h to exactly 0 at leg contact. The engine's minimum throttle (about 1.3× weight) is still above the booster's weight, which is the "it can't hover" point the X-ray thrust-vs-weight panel makes.
+
+The big SPEED counter shows that real speed, and the video plays the flight clock at different rates: slow-motion in the hook, time-lapse through the coast and fall, and close to real time for the burn and touchdown.
+
+The hook (0–2 s) opens on the last seconds of the landing burn at 0.7×. A VHS-style rewind then takes the story back to separation. The last 0.4 s cut back to the hook camera on the same clock, so the video loops. There is no audio.
+
+```bash
+cd booster-landing
+npm install                 # three@0.128.0
+npm run stills              # 4 approval stills → stills/
+bash render-all.sh          # 720 frames → frames/, checks, then the silent MP4 → /output/booster-landing.mp4
+```
+
+All readouts are approximate and are not tied to any real vehicle. `booster-landing-short.mp4` is the render.
