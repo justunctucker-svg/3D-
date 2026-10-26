@@ -200,3 +200,43 @@ bash add-audio.sh           # redo only the sound on /output/rocket-engine-silen
 The final shot and the opening are cut from one continuous ignition buffer, the filters are circular, and the track has no fades, so the sound loops seamlessly too. `master.py` sets loudness with a fixed gain and a memoryless soft clip (about -15 LUFS, -1 dBFS peak) rather than a time-varying limiter, which would shift the seam.
 
 All readouts are approximate and are not tied to any real engine. `rocket-engine-short.mp4` is the render with sound.
+
+# Ejection Seat
+
+`ejection-seat/` is a 22-second *Inside the Mechanism* explainer, built on the same pipeline, overlay, fonts and X-ray look as the jet and rocket engines. Everything is procedural:
+
+- a generic, unmarked jet with an open cockpit and a jettisonable canopy
+- a stylized pilot whose limbs are posed every frame from joint positions
+- a rocket-assisted seat on rails, with a telescoping catapult, a rocket motor under the pan, and drogue and main parachutes in the headbox
+
+A small flight model drives the motion and the readouts. It integrates in the jet's frame at 150 m/s, 150 m up, and covers:
+
+- a 15 g catapult stroke and a rocket burn
+- airflow drag on the seat
+- drogue stabilization
+- seat-man separation
+- the main canopy opening
+
+The seat clears the jet at about 0.3 s, and the canopy is full at about 2.9 s.
+
+A big timer shows real time since the handle pull. The video plays that clock at different speeds: 1/5× in the hook, a real-time cockpit beat, about 1/30× to 1/20× for the canopy, catapult and rocket, then a ramp back to real time. The TIME readout shows the playback speed.
+
+The hook (0–2 s) opens mid-ejection, then a VHS-style rewind takes the story back to the pull. The last 0.4 s cut back to the hook camera on the same clock, so the video loops. `audio.py` builds sound on the same timing curve:
+
+- cockpit rumble, a caution tone and oxygen-mask breaths
+- the handle click
+- slow-motion canopy and catapult booms and the rocket roar
+- timer ticks that speed up with the clock
+- the drogue pop, separation, the chute snap and a calm descent
+
+As with the rocket, the sound is loop-safe and has no fades.
+
+```bash
+cd ejection-seat
+npm install                 # three@0.128.0
+npm run stills              # 4 approval stills → stills/
+bash render-all.sh          # 660 frames → frames/, checks, silent MP4, then sound → /output/ejection-seat.mp4
+bash add-audio.sh           # redo only the sound on /output/ejection-seat-silent.mp4
+```
+
+All readouts are approximate and are not tied to any real seat or aircraft. `ejection-seat-short.mp4` is the render with sound.
