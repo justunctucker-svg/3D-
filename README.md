@@ -280,3 +280,32 @@ bash add-audio.sh           # redo only the sound on /output/booster-landing-sil
 ```
 
 All readouts are approximate and are not tied to any real vehicle. `booster-landing-short.mp4` is the render with sound.
+
+# Microwave Counter-Drone
+
+`microwave-counter-drone/` is a 26-second NovexDynamics explainer, built on the same pipeline, overlay, fonts and X-ray look as the earlier videos. Everything is procedural:
+
+- a dusk sky with a tree line and a flat dark field
+- a swarm of 49 generic quadcopters (instanced meshes), each with nav lights, prop discs and a fiber-optic line trailing back to its operator
+- a fiber-guided hero drone with a spool, a GPS mast, a flight controller and a 4-in-1 motor controller (ESC)
+- a tripod jammer, an operator ground station, and a trailer carrying a flat phased-array panel
+
+The microwave beam is invisible in reality, so it is drawn as a visualization:
+
+- a translucent cone with rippling wavefronts that sweeps with no moving parts, while the panel tiles light up in phase bands that follow the steering angle
+- a wavefront rolling across the field in the hook, with a heat-haze ripple
+- energy streaks that couple in through the antenna, the body seams and the motor shafts
+- surges that race along the board traces, while chips heat up, flash and fail one by one
+
+The big DRONES ACTIVE counter is driven by the drones themselves: each one is "hit" when the wavefront or the cone's edge reaches it, and then it goes dark and falls. The counter, like every readout, is illustrative only. No range, power or effectiveness figures appear on screen, and no real system or product is named.
+
+The hook (0–2 s) opens on the swarm the instant before the wave, and a VHS-style rewind leads into the jammer beat. The final 2 s replay the hook's lead-in on the same swarm clock, so the last frame matches the first and the video loops. There is no audio.
+
+```bash
+cd microwave-counter-drone
+npm install                 # three@0.128.0
+npm run stills              # 5 approval stills → stills/
+bash render-all.sh          # 780 frames → frames/, checks, then the MP4 → /output/microwave-counter-drone.mp4
+```
+
+`microwave-counter-drone-short.mp4` is the render.
