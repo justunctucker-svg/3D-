@@ -299,13 +299,30 @@ The microwave beam is invisible in reality, so it is drawn as a visualization:
 
 The big DRONES ACTIVE counter is driven by the drones themselves: each one is "hit" when the wavefront or the cone's edge reaches it, and then it goes dark and falls. The counter, like every readout, is illustrative only. No range, power or effectiveness figures appear on screen, and no real system or product is named.
 
-The hook (0–2 s) opens on the swarm the instant before the wave, and a VHS-style rewind leads into the jammer beat. The final 2 s replay the hook's lead-in on the same swarm clock, so the last frame matches the first and the video loops. There is no audio.
+The hook (0–2 s) opens on the swarm the instant before the wave, and a VHS-style rewind leads into the jammer beat. The final 2 s replay the hook's lead-in on the same swarm clock, so the last frame matches the first and the video loops.
+
+`audio.py` builds the sound on the same clocks, and every swarm drone is its own voice:
+
+- its motor buzz spins down when the wave or the cone's edge reaches it
+- it crackles at the hit, ticks the counter, and thuds into the field when it lands, on the frames the picture shows
+- in beat 05 all of this is pitched down with the slow motion
+
+Around the swarm:
+
+- a deep pressure "whumm" and rush for the hook's wave
+- the hero drone's motors, the jammer's digital hiss and the arcs glancing off the airframe, and a "denied" blip
+- the trailer's power unit and the tile array phasing up, the beam forming, and a hum that pans with the sweep
+- an electric fizz as energy couples in, then surges, chip-failure pops and the motors winding down, all in the X-ray view
+- crickets in the dusk field throughout, and a soft chord under the final caption
+
+As with the earlier videos, the sound is loop-safe and has no fades.
 
 ```bash
 cd microwave-counter-drone
 npm install                 # three@0.128.0
 npm run stills              # 5 approval stills → stills/
-bash render-all.sh          # 780 frames → frames/, checks, then the MP4 → /output/microwave-counter-drone.mp4
+bash render-all.sh          # 780 frames → frames/, checks, silent MP4, then sound → /output/microwave-counter-drone.mp4
+bash add-audio.sh           # redo only the sound on /output/microwave-counter-drone-silent.mp4
 ```
 
-`microwave-counter-drone-short.mp4` is the render.
+`microwave-counter-drone-short.mp4` is the render with sound.

@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # Renders all 780 frames (26 s × 30 fps) with JOBS parallel Chromium processes (frames interleaved so the heavy
-# sections are shared), re-renders any frame whose overlay failed to paint, then encodes the silent H.264 video.
-# Usage: bash render-all.sh   (JOBS=4, OUT=/output/microwave-counter-drone.mp4)
+# sections are shared), re-renders any frame whose overlay failed to paint, encodes the H.264 video, then adds the
+# synthesized sound (add-audio.sh). Usage: bash render-all.sh   (JOBS=4, SILENT=/output/microwave-counter-drone-silent.mp4, OUT=/output/microwave-counter-drone.mp4)
 set -euo pipefail
 cd "$(dirname "$0")"
 JOBS=${JOBS:-4}
 TOTAL=780
 OUT=${OUT:-/output/microwave-counter-drone.mp4}
+SILENT=${SILENT:-/output/microwave-counter-drone-silent.mp4}
 
 rm -rf frames && mkdir -p frames "$(dirname "$OUT")"
 for ((j = 0; j < JOBS; j++)); do
@@ -27,5 +28,6 @@ for pass in 1 2 3; do
 done
 
 ffmpeg -y -loglevel error -framerate 30 -i frames/frame_%05d.png \
-  -c:v libx264 -preset slow -crf 18 -pix_fmt yuv420p -movflags +faststart -an "$OUT"
-echo "wrote $OUT"
+  -c:v libx264 -preset slow -crf 18 -pix_fmt yuv420p -movflags +faststart -an "$SILENT"
+echo "wrote $SILENT"
+bash add-audio.sh "$SILENT" "$OUT"
