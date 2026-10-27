@@ -351,13 +351,26 @@ The physics is kept simple:
 
 Every spec on screen is tagged CLAIMED. The "seconds, not minutes" line is labelled as a NOVEX ESTIMATE, not a published figure. The AIR LEFT counter and the stats bar are approximate. No real logos, badges or names appear.
 
-The hook (0–2 s) opens mid-flip at 0.35× speed, and a VHS-style rewind takes the story back to the parked car. The final 2 s replay the flip's lead-in on the same flight clock, so the last frame matches the first and the video loops. There is no audio.
+The hook (0–2 s) opens mid-flip at 0.35× speed, and a VHS-style rewind takes the story back to the parked car. The final 2 s replay the flip's lead-in on the same flight clock, so the last frame matches the first and the video loops.
+
+`audio.py` builds the sound on the same clocks as the picture:
+
+- each nozzle's hiss follows its own jet, including the same random sputter as the tank runs dry, and the sound darkens as the pressure falls
+- the hook's jets are slowed with the flip and pan with the roll, over a low rumble
+- valve clacks and pressure releases land on the frames where the valves open, with a boom as the car lifts
+- the X-ray beats muffle the jets and add a low room tone and scan sweeps
+- a falling pressure tone, vessel creaks and a soft touchdown thud as the air runs out
+- a quiet compressor under the SELF-RECHARGING line, stamps for the CLAIMED callouts, and a soft chord under the final caption
+- dusk ambience with crickets outside the X-ray view
+
+As with the earlier videos, the sound is loop-safe and has no fades.
 
 ```bash
 cd can-it-really-fly
 npm install                 # three@0.128.0
 npm run stills              # 5 approval stills → stills/
-bash render-all.sh          # 810 frames → frames/, checks, then the MP4 → /output/can-it-really-fly.mp4
+bash render-all.sh          # 810 frames → frames/, checks, silent MP4, then sound → /output/can-it-really-fly.mp4
+bash add-audio.sh           # redo only the sound on /output/can-it-really-fly-silent.mp4
 ```
 
-`can-it-really-fly-short.mp4` is the render.
+`can-it-really-fly-short.mp4` is the render with sound.

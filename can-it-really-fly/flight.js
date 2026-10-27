@@ -383,7 +383,7 @@
     fragmentShader: NOISE + `varying vec3 vP; varying vec3 vN; varying vec3 vV; uniform float uAmt; uniform float uTime;
       void main(){
         float k = clamp(vP.y, 0.0, 1.0), ang = atan(vP.z, vP.x);
-        float n = fbm(vec3(ang * 2.0, vP.y * 6.0 - uTime * 30.0, 1.0));
+        float n = fbm(vec3(ang * 2.0, vP.y * 6.0 - uTime * 9.0, 1.0));
         float f = pow(abs(dot(normalize(vN), normalize(vV))), 1.3);
         float a = uAmt * (1.0 - smoothstep(0.15, 1.0, k)) * (0.35 + 0.9 * n) * f;
         vec3 col = mix(vec3(1.7, 1.9, 2.2), vec3(0.7, 0.82, 1.05), smoothstep(0.0, 0.45, k));

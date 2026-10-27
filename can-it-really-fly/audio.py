@@ -222,9 +222,9 @@ add(np.stack([band(noise(n), 2000, 9000), band(noise(n), 2000, 9000)]) * (0.4 + 
 X = smooth(span(t, 6.0, 6.35)) * (1 - smooth(span(t, 9.85, 10.0))) + smooth(span(t, 15.0, 15.35)) * (1 - smooth(span(t, 20.85, 21.0)))
 main = (t >= REW1) & (t < FINAL0)
 amb = main * (1 - 0.7 * X)
-add(stereo_noise(80, 900, 0.8) * lfo(0.5, 0.4), 0.02 * amb)
-add(crickets(N, 0.8, 61), 0.007 * amb)
-add(tone(np.full(N, 100.0), [1, 0.4, 0.2]) * lfo(0.3, 0.1), 0.006 * amb, 0.3)                       # spotlight ballast hum
+add(stereo_noise(80, 900, 0.8) * lfo(0.5, 0.4), 0.034 * amb)
+add(crickets(N, 0.8, 61), 0.011 * amb)
+add(tone(np.full(N, 100.0), [1, 0.4, 0.2]) * lfo(0.3, 0.1), 0.01 * amb, 0.3)                       # spotlight ballast hum
 add(tone(np.full(N, 60.0), [1, 0.4, 0.3, 0.1]) * lfo(0.5, 0.2) + 0.3 * band(noise(N), 60, 400), 0.012 * X)   # X-ray room tone
 scan(5.9, True, 0.06, 0.15); scan(9.82, False, 0.05, -0.15)
 scan(14.9, True, 0.06, 0.15); scan(20.82, False, 0.05, -0.15)
@@ -268,7 +268,7 @@ add(reverb(boom(0.8, 75, 38, 0.18, 150, 1200, 0.05, 0.6), 1.2, 0.4, 0.25), 0.15,
 n = int(0.25 * SR); add(band(noise(n), 180, 900) * env(0.005, 0.06, n), 0.04, start=21.75)                 # tyres settling
 comp = smooth(span(t, 22.2, 22.8)) * (t < FINAL0) * (1 - smooth(span(t, 24.9, 25.0)))
 cf = 92 + 10 * span(t, 22.2, 25.0)
-add(tone(cf, [1, 0.6, 0.4, 0.25]) * (0.75 + 0.25 * np.sin(2 * np.pi * 6 * t)) + 0.3 * band(noise(N), 200, 1500) * (0.5 + 0.5 * np.sin(2 * np.pi * 6 * t)) ** 2, 0.022 * comp, 0.1)
+add(tone(cf, [1, 0.6, 0.4, 0.25]) * (0.75 + 0.25 * np.sin(2 * np.pi * 6 * t)) + 0.3 * band(noise(N), 200, 1500) * (0.5 + 0.5 * np.sin(2 * np.pi * 6 * t)) ** 2, 0.034 * comp, 0.1)
 
 # ================================================================ 6. final caption: a soft chord over the flip's lead-in, gone before the loop
 n = int(1.5 * SR); k = np.arange(n) / SR
