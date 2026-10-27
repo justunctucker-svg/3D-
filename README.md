@@ -326,3 +326,38 @@ bash add-audio.sh           # redo only the sound on /output/microwave-counter-d
 ```
 
 `microwave-counter-drone-short.mp4` is the render with sound.
+
+# Can It Really Fly?
+
+`can-it-really-fly/` is a 27-second NovexDynamics physics check on cold-gas thrusters for a hypercar. It is built on the same pipeline, overlay, fonts and X-ray look as the earlier videos. Everything is procedural:
+
+- a generic, unmarked wedge-shaped two-seat hypercar, extruded from a side profile with a tinted canopy and ten nozzles
+- five generic parked vehicles: a sedan, a small van, a semi-style tractor, a pickup and a crossover
+- a dusk sky over a dark stage with soft spotlights
+
+The X-ray view shows the parts the video is about:
+
+- two pressure vessels with valves, and air lines to every nozzle
+- slugs of air racing along the lines while a valve is open
+- the gas inside each vessel, drawn as glowing motes that thin out as the AIR LEFT counter drains
+
+The air jets are bright cores plus puffs and streaks emitted in world space, so they trail correctly behind the car through the slow-motion barrel roll.
+
+The physics is kept simple:
+
+- gas leaving a nozzle one way pushes the car the other way
+- to hover, thrust has to equal the car's weight for the whole time it is off the ground
+- compressed air is a weak propellant, so the tank empties in seconds
+
+Every spec on screen is tagged CLAIMED. The "seconds, not minutes" line is labelled as a NOVEX ESTIMATE, not a published figure. The AIR LEFT counter and the stats bar are approximate. No real logos, badges or names appear.
+
+The hook (0–2 s) opens mid-flip at 0.35× speed, and a VHS-style rewind takes the story back to the parked car. The final 2 s replay the flip's lead-in on the same flight clock, so the last frame matches the first and the video loops. There is no audio.
+
+```bash
+cd can-it-really-fly
+npm install                 # three@0.128.0
+npm run stills              # 5 approval stills → stills/
+bash render-all.sh          # 810 frames → frames/, checks, then the MP4 → /output/can-it-really-fly.mp4
+```
+
+`can-it-really-fly-short.mp4` is the render.
