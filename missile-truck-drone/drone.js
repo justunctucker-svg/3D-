@@ -19,10 +19,11 @@
   const RENDER = new URLSearchParams(location.search).has('render');
   const V3 = (x, y, z) => new T.Vector3(x, y, z);
   const deg = d => d * PI / 180;
-  function monotone(xs, ys) {
+  function monotone(xs, ys, flat = []) {
     const n = xs.length, d = [], m = new Array(n).fill(0);
     for (let i = 0; i < n - 1; i++) d.push((ys[i + 1] - ys[i]) / (xs[i + 1] - xs[i]));
     for (let i = 1; i < n - 1; i++) m[i] = d[i - 1] * d[i] <= 0 ? 0 : (d[i - 1] + d[i]) / 2;
+    flat.forEach(i => { m[i] = 0; });                                                  // keys the curve comes to rest at
     for (let i = 0; i < n - 1; i++) {
       if (d[i] === 0) { m[i] = m[i + 1] = 0; continue; }
       const a = m[i] / d[i], b = m[i + 1] / d[i], q = a * a + b * b;
@@ -428,6 +429,9 @@
     [20.3, 'W', [-20000, 13000, 7000], 'W', [11500, 0, 0], 0],
     [20.95, 'W', [-19800, 12900, 7000], 'W', [11500, 0, 0], 0]
   ];
+  // segments between a close key and a world key are zooms; the curve rests at both ends of each
+  const ZOOMS = CAM_KEYS.map((k, i) => i).filter(i => i < CAM_KEYS.length - 1 && (CAM_KEYS[i][1] === 'W') !== (CAM_KEYS[i + 1][1] === 'W'));
+  const ZOOM_FLAT = ZOOMS.flatMap(i => [i, i + 1]);
   function camFor(t) {
     const w = worldW(t);
     if (isHook(t) || t < REW1) {
@@ -435,8 +439,19 @@
       return { pos: f.clone().add(V3(...HOOK_OFF)), look: f.clone().add(V3(...HOOK_LOOK)), up: UP_Y, sk: shake(t, 0.06 * pulse(w, 0.6, 0.75, 1.4, 2.3)) };
     }
     const keys = CAM_KEYS.map(k => [k[0], anchor(k[1], w).add(V3(...k[2])), anchor(k[3], w).add(V3(...k[4])), k[5]]);
-    const ch = c => monotone(keys.map(k => k[0]), keys.map(k => c < 3 ? k[1].getComponent(c) : c < 6 ? k[2].getComponent(c - 3) : k[3]))(t);
-    const pos = V3(ch(0), ch(1), ch(2)), look = V3(ch(3), ch(4), ch(5)), up = UP_Y.clone().lerp(UP_X, ch(6)).normalize();
+    const ch = c => monotone(keys.map(k => k[0]), keys.map(k => c < 3 ? k[1].getComponent(c) : c < 6 ? k[2].getComponent(c - 3) : k[3]), ZOOM_FLAT)(t);
+    const z = ZOOMS.find(i => t >= keys[i][0] && t < keys[i + 1][0]);
+    let pos, look;
+    if (z !== undefined) {
+      // a pull-out to (or push-in from) a tactical view: the distance eases in log space so the zoom reads as one
+      // steady move, and the aim shifts in step with the distance so the subject drifts smoothly off centre
+      const [ta, pa, la] = keys[z], [tb, pb, lb] = keys[z + 1];
+      const e = smooth(span(t, ta, tb)), oa = pa.clone().sub(la), ob = pb.clone().sub(lb), La = oa.length(), Lb = ob.length();
+      const L = La * Math.pow(Lb / La, e);
+      look = la.clone().lerp(lb, (L - La) / (Lb - La));
+      pos = oa.normalize().lerp(ob.normalize(), e).normalize().multiplyScalar(L).add(look);
+    } else { pos = V3(ch(0), ch(1), ch(2)); look = V3(ch(3), ch(4), ch(5)); }
+    const up = UP_Y.clone().lerp(UP_X, ch(6)).normalize();
     return { pos, look, up, sk: shake(t, 0.06 * pulse(t, 7.75, 7.9, 8.5, 9.3) + 0.04 * pulse(t, 17.5, 17.6, 18.0, 18.6)) };
   }
 
@@ -552,15 +567,18 @@
   function update(t) {
     t = clamp(t, 0, DURATION - 1e-4);
     const w = worldW(t), X = xrayAmt(t), tac = TAC(t), split = t >= SPLIT0 && t < FINAL0;
+    const ft = isHook(t) ? hookClock(t) : t;                                          // effects clock: runs on through the loop seam
     shells.forEach(sh => { sh.solid.visible = X < 0.995; sh.ghost.visible = X > 0.005; sh.solid.castShadow = X < 0.5; });
     fadeMats.forEach(m => { m.transparent = X > 0.005; m.opacity = 1 - X; m.depthWrite = X < 0.6; });
     xrayMats.forEach(m => { m.uniforms.uOpacity.value = X; });
     bgMat.uniforms.uX.value = X; rim.intensity = X; dInside.visible = X > 0.02;
-    dome.visible = domeBase.visible = X < 0.98; domeM.uniforms.uTime.value = t; domeM.uniforms.uAmt.value = 1 - X; domeM.uniforms.uAlarm.value = 0; domeM.uniforms.uFill.value = split ? 0.11 : lerp(0.035, 0.08, tac);
+    dome.visible = domeBase.visible = X < 0.98; domeM.uniforms.uTime.value = ft; domeM.uniforms.uAmt.value = 1 - X; domeM.uniforms.uAlarm.value = 0; domeM.uniforms.uFill.value = split ? 0.11 : lerp(0.035, 0.08, tac);
     smoke.reset(); glows.reset();
 
-    // aircraft: scaled up into icons in the tactical views
-    const s = lerp(1, ICON, tac * tac);
+    // aircraft: scaled up into icons as the camera pulls back (1 up close, growing with the camera's distance
+    // so they hold a readable size in the tactical views)
+    const C = camFor(t), camL = C.pos.distanceTo(C.look), xi = Math.max(0, camL - 60) / 240;
+    const s = Math.min(ICON, Math.pow(1 + xi ** 4, 0.25));
     const fp = fighterPose(w), dp = dronePose(w), mp = missilePose(w);
     place(fighter, fp, s);
     // in the tactical views the attached drone hangs from the scaled fighter
@@ -572,18 +590,18 @@
     missile.visible = X > 0.02 || !mInBay || doorsOpen(w) > 0.05;
     // engines
     const eo = engOn(w), mo = motorOn(w);
-    dExh.uniforms.uAmt.value = eo * (0.9 + 0.1 * Math.sin(t * 41)) * (1 - 0.8 * X); dExh.uniforms.uTime.value = t;
-    mExh.uniforms.uAmt.value = mo; mExh.uniforms.uTime.value = t;
-    fan.rotation.x = t * 30;
-    if (eo > 0.01) glows.push(toWorld(dpS, V3(-3.55, 0, 0), s), 2.0 * eo, 1.5 * eo, 0.9 * eo, (0.9 + 0.15 * Math.sin(t * 37)) * s * (1 - 0.6 * X));
+    dExh.uniforms.uAmt.value = eo * (0.9 + 0.1 * Math.sin(ft * 41)) * (1 - 0.8 * X); dExh.uniforms.uTime.value = ft;
+    mExh.uniforms.uAmt.value = mo; mExh.uniforms.uTime.value = ft;
+    fan.rotation.x = ft * 30;
+    if (eo > 0.01) glows.push(toWorld(dpS, V3(-3.55, 0, 0), s), 2.0 * eo, 1.5 * eo, 0.9 * eo, (0.9 + 0.15 * Math.sin(ft * 37)) * s * (1 - 0.6 * X));
     if (mo > 0.01) glows.push(toWorld(missile.visible ? { pos: missile.position, q: missile.quaternion } : mp, V3(-1.75, 0, 0), s), 1.9 * mo, 1.5 * mo, 1.0 * mo, 0.6 * s);
     fNozGlow.forEach(p => glows.push(toWorld(fp, p, s), 0.5, 0.25, 0.1, 0.9 * s));
     // smoke: a puff of release gas, the drone's faint exhaust, the missile's trail
     if (w > 0 && w < 1.2) for (let j = 0; j < 14; j++) { const age = w - j * 0.02; if (age < 0) continue; smoke.push(toWorld(fighterPose(w - age), D_ATTACH.clone().add(V3(-0.6 + rand(j, 5), -0.3, (rand(j, 6) - 0.5) * 0.8))), 0.6 + 1.6 * age, 0.25 * (1 - age / 1.2), rand(j, 7)); }
-    if (eo > 0.01 && tac < 0.5) for (let j = 0; j < 24; j++) { const age = j * 0.05 + (((t / 0.05) % 1 + 1) % 1) * 0.05; const pb = dronePose(w - age); if (w - age < 0.45) continue; smoke.push(toWorld(pb, V3(-3.8 - 2 * age, 0, 0)), 0.3 + 1.4 * age, 0.07 * (1 - age / 1.2), rand(j, 8)); }
+    if (eo > 0.01 && tac < 0.5) for (let j = 0; j < 24; j++) { const age = j * 0.05 + (((ft / 0.05) % 1 + 1) % 1) * 0.05; const pb = dronePose(w - age); if (w - age < 0.45) continue; smoke.push(toWorld(pb, V3(-3.8 - 2 * age, 0, 0)), 0.3 + 1.4 * age, 0.07 * (1 - age / 1.2), rand(j, 8)); }
     if (w > W_IGN) missileTrail(w0 => missilePose(w0).pos.add(V3(0, D_ATTACH.y * (s - 1), 0)), w, W_IGN, Math.max(1, s * 0.5));
     // threat zone, reach ring (drawn on in the problem beat; around the drone at the end of 04)
-    const ringOn = t < 10 ? tac : smooth(span(t, 19.6, 20.4));
+    const ringOn = t < 10 ? tac : t < SPLIT0 ? smooth(span(t, 19.6, 20.4)) : 0;
     reach.visible = ringOn > 0.01 && !split;
     if (reach.visible) {
       const around = t < 10 ? fp.pos : dpS.pos;
@@ -594,16 +612,15 @@
     }
 
     // camera
-    const C = camFor(t);
     camera.up.copy(C.up); camera.position.copy(C.pos).add(C.sk); camera.lookAt(C.look);
-    const near = tac > 0.4 || split ? 40 : 0.3; if (camera.near !== near) { camera.near = near; camera.updateProjectionMatrix(); }
+    const near = camL > 600 || split ? 40 : 0.3; if (camera.near !== near) { camera.near = near; camera.updateProjectionMatrix(); }
     camera.updateMatrixWorld();
     [fighter, drone, missile].forEach(o => o.updateMatrixWorld(true));
     smoke.done(); glows.done();
     // shadows follow the subject (only the close shots need them)
-    const subj = t >= 7.9 ? dpS.pos : fp.pos;
+    const subj = t >= 7.9 && !isHook(t) ? dpS.pos : fp.pos;
     sun.target.position.copy(subj); sun.position.copy(subj).addScaledVector(SUN_DIR, 100);
-    sun.castShadow = tac < 0.3;
+    sun.castShadow = s < 1.5 || split;
     bgMat.uniforms.uCamPos.value.copy(camera.position);
     vhs.uniforms.uAmt.value = pulse(t, REW0 - 0.04, REW0 + 0.06, REW1 - 0.1, REW1);
     vhs.uniforms.uTime.value = t;

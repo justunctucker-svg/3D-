@@ -423,3 +423,47 @@ bash add-audio.sh           # redo only the sound on /output/refueling-in-orbit-
 ```
 
 `refueling-in-orbit-short.mp4` is the render with sound.
+
+# The Missile Truck Drone
+
+`missile-truck-drone/` is a 27-second NovexDynamics explainer on a publicly announced concept: an uncrewed drone that a fighter launches in the air, which carries missiles in an internal bay closer to a defended area than the crewed jet goes, then releases them. It is a concept visualization of a development program, not flight footage. It is built on the same pipeline, overlay, fonts and X-ray look as the earlier videos. Everything is procedural:
+
+- a generic twin-tail fighter with a pylon under the fuselage
+- a stealthy drone with a chined body, a dorsal intake, an inverted-V tail, canards, wings that swing out after the drop, and bay doors on its belly
+- a missile with fins, and a red threat dome that stands for a defended area, with a pulsing edge and a blue reach ring for how far a missile can go
+- a high-altitude sky with the cloud deck far below, drawn in the background shader from the camera's position
+
+The X-ray view, seen from below, shows the inside of the drone: the bay with the missile in it, the engine and fan, the fuel tank and the electronics.
+
+No missile, company or program is named, and the aircraft carry no national markings, logos or insignia. No range, speed, altitude, missile count, cost or performance figure is given: the DISTANCE FROM JET counter and the readouts are tagged ILLUSTRATIVE, and a CONCEPT VISUALIZATION · NOT FLIGHT FOOTAGE tag sits in the top-right corner. Nothing is shown hitting anything; the action ends when the missile leaves the bay, and no people appear.
+
+The pacing is slow and the camera mostly moves in long, continuous shots. The beats are:
+
+1. the problem: the camera pulls up into a tactical view in which the aircraft are scaled up as icons, and the jet's reach ring does not get past the red dome
+2. the launch: the fighter drops the drone from a safe distance, then banks away and turns back
+3. inside: the hull turns to glass
+4. the release: the bay doors open at the edge of the dome, the missile drops, lights and streaks off, and the fighter is still outside
+5. the point: a split screen in which, on the left, a fighter without the drone has to fly into the red to launch, while on the right the drone launches the same missile and the fighter stays outside
+
+The hook (0–2 s) opens just after the drop, as the drone's engine lights and it surges ahead, and a VHS-style rewind takes the story back to before the launch. The last 2 s replay the hook's lead-in on the same clock, so the last frame matches the first and the video loops.
+
+`audio.py` builds the sound on the same clocks as the picture:
+
+- the fighter's engines and the wind close up, and a low hum with the dome's pulse in the tactical views
+- the release latch, the wings and canards locking, and the drone's engine lighting and pulling away
+- the counter ticking, a scan in and out of the X-ray, and the engine muffled through it
+- a warning tone inside the dome, the bay doors, the missile letting go, and its motor lighting and fading off
+- in the split screen, an alarm on the left as that fighter enters the red, and both launches together
+- a soft chord under the final caption
+
+As with the earlier videos, the sound is loop-safe and has no fades.
+
+```bash
+cd missile-truck-drone
+npm install                 # three@0.128.0
+npm run stills              # 5 approval stills → stills/
+bash render-all.sh          # 810 frames → frames/, checks, silent MP4 → /output/missile-truck-drone.mp4, then sound → /output/missile-truck-drone-sound.mp4
+bash add-audio.sh           # redo only the sound copy from /output/missile-truck-drone.mp4
+```
+
+The brief asked for no audio, so `missile-truck-drone-short.mp4` is the silent render and `missile-truck-drone-short-sound.mp4` is the copy with sound.
