@@ -450,7 +450,9 @@
   const STREAK_N = 100;
   const streakMat = new T.ShaderMaterial({
     vertexShader: 'attribute vec4 aCol; varying vec2 vUv; varying vec4 vCol; void main(){ vUv = uv; vCol = aCol; gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0); }',
-    fragmentShader: 'varying vec2 vUv; varying vec4 vCol; void main(){ float along = pow(clamp(vUv.x, 0.0, 1.0), 1.4) * (1.0 - smoothstep(0.85, 1.0, vUv.x)); float across = 1.0 - abs(vUv.y * 2.0 - 1.0); across *= across; float a = along * across * vCol.a; if (a < 0.003) discard; gl_FragColor = vec4(vCol.rgb * a, a); }',
+    // the uv is clamped: with MSAA these sub-pixel slivers are shaded at pixel centres that can lie far outside the triangle,
+    // where an extrapolated vUv.y made across*across huge and the bloom smeared a few such pixels over a third of the frame
+    fragmentShader: 'varying vec2 vUv; varying vec4 vCol; void main(){ vec2 uv = clamp(vUv, 0.0, 1.0); float along = pow(uv.x, 1.4) * (1.0 - smoothstep(0.85, 1.0, uv.x)); float across = 1.0 - abs(uv.y * 2.0 - 1.0); across *= across; float a = along * across * vCol.a; if (a < 0.003) discard; gl_FragColor = vec4(vCol.rgb * a, a); }',
     transparent: true, depthWrite: false, blending: T.AdditiveBlending, side: T.DoubleSide
   });
   const streakGeo = new T.BufferGeometry();
