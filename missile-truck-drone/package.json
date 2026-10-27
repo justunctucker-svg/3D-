@@ -1,0 +1,12 @@
+{
+  "name": "missile-truck-drone-explainer",
+  "private": true,
+  "description": "NovexDynamics: The Missile Truck Drone (procedural Three.js, rendered frame by frame with Playwright)",
+  "scripts": {
+    "stills": "node render.js --stills 1.0,5.0,12.6,17.9,23.6 --out stills",
+    "frames": "bash render-all.sh"
+  },
+  "dependencies": {
+    "three": "0.128.0"
+  }
+}
