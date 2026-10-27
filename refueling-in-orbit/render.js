@@ -37,7 +37,7 @@ const server = http.createServer((req, res) => {
   await page.waitForFunction(() => window.__ready === true, null, { timeout: 300000 });
   page.setDefaultTimeout(180000);
   // warm-up: compile every shader variant (rewind VHS, X-ray, plumes) before the first captured frame
-  for (const t of [2.3, 3.5, 8, 13, 18, 22, 27]) await page.evaluate(tt => window.__render(tt), t);
+  for (const t of [2.3, 4, 8, 14, 19, 24, 28.5]) await page.evaluate(tt => window.__render(tt), t);
   const t0 = Date.now();
   for (const [i, job] of jobs.entries()) {
     await page.evaluate(t => window.__render(t), job.t);

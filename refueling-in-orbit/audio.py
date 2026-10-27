@@ -12,7 +12,7 @@ import wave
 
 import numpy as np
 
-SR, DUR = 48000, 28.0
+SR, DUR = 48000, 30.0
 N = int(SR * DUR)
 t = np.arange(N) / SR
 rng = np.random.default_rng(20261028)
@@ -122,8 +122,9 @@ def blip(t0, f1, f2, g, pan=0.0):
 
 
 # ---------------------------------------------------------------- clocks and curves (mirror refuel.js)
-REW0, REW_MID, REW1, FINAL0, DEPART, END_CUT = 2.0, 2.25, 2.6, 26.0, 26.7, 27.6
-LIFT, STAGE_T, MECO, LIFT2, CONTACT, SETTLE, VALVE, FILL0, FULL, X_OUT = 3.0, 4.38, 5.6, 5.75, 9.3, 15.3, 19.6, 20.0, 25.6, 22.9
+REW0, REW_MID, REW1, FINAL0, END_CUT = 2.0, 2.25, 2.6, 26.6, 29.6
+IGN, STAGE_T, MECO, ARRIVE, CONTACT, SETTLE, VALVE, FILL0, FULL = 2.72, 5.4, 7.4, 8.4, 12.0, 16.9, 20.9, 21.3, 26.0
+X_IN, X_OUT, UNDOCK, TURN0, TURN1, BURN = 12.7, 24.5, 26.65, 27.2, 28.2, 28.2
 TAU = 2 * np.pi
 def rnd(i, j):
     x = np.sin(np.asarray(i, float) * 127.1 + j * 311.7) * 43758.5453
@@ -131,10 +132,12 @@ def rnd(i, j):
 def win(a, b, ramp=0.008):
     """1 inside [a, b), with short ramps so hard cuts do not click."""
     return smooth(span(t, a, a + ramp)) * (1 - smooth(span(t, b - ramp, b)))
-X = smooth(span(t, 10.0, 10.35)) * (1 - smooth(span(t, X_OUT - 0.2, X_OUT)))
+X = smooth(span(t, X_IN, X_IN + 0.6)) * (1 - smooth(span(t, X_OUT - 0.6, X_OUT)))
 HOOK_FUEL = lambda hh: 56 + 9 * hh
 fill = 12 + 88 * smooth(span(t, FILL0, FULL))                                  # LANDER FUEL during the transfer
 settle_on = smooth(span(t, SETTLE, SETTLE + 0.3)) * (t < FINAL0)
+alt = np.where(t < REW1, 0.0, monotone([0, 0.4, 1.2, 1.9, 2.7, 3.7, 4.7, 5.8], [0, 0, 55, 800, 15000, 80000, 230000, 400000])(t - REW1))
+thin_air = smooth(span(alt, 800, 15000))
 
 
 # ---------------------------------------------------------------- recipes
@@ -189,12 +192,11 @@ hook_buf = np.stack([HL, HR])
 cut = int(-H0 * SR)
 add(hook_buf[:, cut:cut + int(2.0 * SR)], 1.0, start=0.0)                     # h ∈ [0, 2) → t ∈ [0, 2)
 pre = hook_buf[:, cut - int(0.4 * SR):cut].copy(); pre[:, :240] *= np.linspace(0, 1, 240)
-add(pre, 1.0, start=END_CUT)                                                  # h ∈ [−0.4, 0) → t ∈ [27.6, 28)
+add(pre, 1.0, start=END_CUT)                                                  # h ∈ [−0.4, 0) → t ∈ [29.6, 30)
 
-# ================================================================ 2. orbit hull drone (every orbit shot, hook included; whole cycles in 28 s, so it loops)
-orbit = ((t < REW_MID) | ((t >= 4.6) & (t < 6.0)) | ((t >= 7.1) & (t < END_CUT)) | (t >= END_CUT)).astype(float)
-orbit = filt(orbit, None, 40, 1)
-drone = tone(np.full(N, 55.0), [1, 0.5, 0.3]) * (0.8 + 0.2 * np.sin(2 * np.pi * t / 7)) + 0.6 * tone(np.full(N, 82.5), [1, 0.3]) + 0.5 * stereo_noise(40, 300, 0.5)[0] * lfo(0.3, 0.3)
+# ================================================================ 2. orbit hull drone (once high up, and in the hook; whole cycles in 30 s, so it loops)
+orbit = np.where(t < REW_MID, 1.0, np.where(t >= END_CUT, 1.0, smooth(span(t, 5.8, 7.2))))
+drone = tone(np.full(N, 55.0), [1, 0.5, 0.3]) * (0.8 + 0.2 * np.sin(2 * np.pi * t / 7.5)) + 0.6 * tone(np.full(N, 82.5), [1, 0.3]) + 0.5 * stereo_noise(40, 300, 0.5)[0] * lfo(0.3, 0.3)
 add(drone, 0.03 * orbit * (1 - 0.4 * X))
 add(stereo_noise(3000, 9000, 0.9) * lfo(0.2, 0.5), 0.006 * orbit * (1 - X))   # a thin high air, like cabin ventilation
 
@@ -214,56 +216,53 @@ add(warble * pulse(k, 0, 0.03, 0.5, 0.6), 0.05, 0.1, start=REW0)
 add(band(noise(n), 200, 3000) * (k / 0.6) ** 2.5 * (1 - smooth(span(k, 0.56, 0.6))), 0.07, -0.1, start=REW0)
 add(glitch, 0.05, start=REW0)
 
-# ================================================================ 4. 01: launch, staging, the burn to orbit
-pad = win(REW1, 3.9)
-add(stereo_noise(100, 2000, 0.8) * lfo(0.6, 0.4), 0.03 * pad)                  # wind at the pad
+# ================================================================ 4. 01: one take from the pad to orbit
+add(stereo_noise(100, 2000, 0.8) * lfo(0.6, 0.4), 0.03 * win(REW1, 6.0) * (1 - smooth(span(alt, 50, 2000))))   # wind at the pad, left behind
 n = int(0.3 * SR); add(band(noise(n), 2000, 9000) * env(0.01, 0.08, n), 0.02, 0.2, start=2.62)   # a last vent before ignition
-add(reverb(boom(1.6, 58, 28, 0.5, 40, 1500, 0.2, 0.9), 1.8, 0.6, 0.3), 0.14, start=2.72)        # ignition
+add(reverb(boom(1.6, 58, 28, 0.5, 40, 1500, 0.2, 0.9), 1.8, 0.6, 0.3), 0.14, start=IGN)         # ignition
 R1 = roar(N)
-eng_b = np.where(t < 3.9, smooth(span(t, 2.72, 2.95)), 1.0)
-add(R1, 0.12 * eng_b * pad * (1 + 0.25 * smooth(span(t, LIFT, 3.4))))
-climb = win(3.9, 4.6)
-thin = np.stack([filt(R1[0], 90, 2200), filt(R1[1], 90, 2200)])                # high up: thinner, more distant
-add(thin, 0.09 * climb * (1 - smooth(span(t, STAGE_T - 0.1, STAGE_T))))
+thin = np.stack([filt(R1[0], 90, 2200), filt(R1[1], 90, 2200)])                # higher up: thinner and further away
+eng_b = smooth(span(t, IGN, IGN + 0.23)) * (1 - smooth(span(t, STAGE_T - 0.1, STAGE_T))) * win(REW1, 6.0)
+add(R1, 0.12 * eng_b * (1 + 0.25 * smooth(span(t, 3.0, 3.4))) * (1 - thin_air))
+add(thin, 0.085 * eng_b * thin_air)
 n = int(1.2 * SR); k = np.arange(n) / SR                                        # staging: a sharp pyro bang and ringing metal
 add(reverb(band(noise(n), 300, 8000) * env(0.0005, 0.02, n) * 1.5 + sum(np.sin(2 * np.pi * f * k) * np.exp(-k / d) for f, d in ((523, 0.4), (1290, 0.25), (2170, 0.15))) * 0.3 * env(0.001, 0.5, n), 1.0, 0.3, 0.25), 0.08, 0.1, start=STAGE_T)
-add(thump(80, 40, 0.15), 0.07, start=STAGE_T + 0.08)                           # the ship's engines light
+add(thump(80, 40, 0.15), 0.07, start=STAGE_T + 0.1)                            # the ship's engines light
 ship_eng = stereo_noise(25, 140, 0.4) * lfo(4, 0.3) + 0.35 * stereo_noise(140, 900, 0.5) * lfo(8, 0.3)
-eng_l = np.select([t < 3.9, t < 4.6, t < 6.0], [0 * t, smooth(span(t, STAGE_T + 0.08, STAGE_T + 0.22)), 1 - smooth(span(t, MECO - 0.1, MECO + 0.05))], 0) * win(3.9, 6.0)
+eng_l = smooth(span(t, STAGE_T + 0.1, STAGE_T + 0.25)) * (1 - smooth(span(t, MECO - 0.1, MECO + 0.05))) * (t < ARRIVE)
 add(ship_eng, 0.09 * eng_l)                                                    # felt through the structure
 add(reverb(boom(0.8, 48, 30, 0.25, 40, 400, 0.05, 0.3), 1.2, 0.5, 0.3), 0.06, start=MECO)        # engine cutoff
-gl = span(t, STAGE_T + 0.08, MECO)                                             # the fuel draining away: a falling tone under the counter
+gl = span(t, STAGE_T + 0.1, MECO)                                              # the fuel draining away: a falling tone under the counter
 f_drain = 900 * (1 - gl) + 220 * gl
-add(np.tanh(2.2 * tone(f_drain, [1, 0.25])) * (0.75 + 0.25 * np.sin(2 * np.pi * 11 * t)), 0.009 * win(STAGE_T + 0.08, MECO + 0.05, 0.05), -0.25)
+add(np.tanh(2.2 * tone(f_drain, [1, 0.25])) * (0.75 + 0.25 * np.sin(2 * np.pi * 11 * t)), 0.009 * win(STAGE_T + 0.1, MECO + 0.05, 0.05), -0.25)
 
-# ================================================================ 5. 02: the tanker's launch, the approach and docking
-pad2 = win(6.0, 7.1)
-add(stereo_noise(100, 2000, 0.8) * lfo(0.6, 0.4), 0.025 * pad2)
-add(R1, 0.11 * pad2 * (1 - 0.3 * span(t, 6.0, 7.1)))
+# ================================================================ 5. 02: the tanker arrives and docks
 def rcs_burst(a, b, f, pan, g=0.07):
     e = pulse(t, a, a + 0.04, b - 0.05, b) * f
     add(hiss(N, 1500, 9000, 0.5), g * e, pan); add(thump(90, 50, 0.08), g * 0.8 * f, pan, start=a)
-rcs_burst(7.2, 7.75, 0.7, -0.5); rcs_burst(7.85, 8.05, 0.5, -0.3); rcs_burst(8.15, 8.75, 0.8, -0.15); rcs_burst(8.95, 9.25, 0.5, -0.1)
+rcs_burst(7.55, 7.8, 0.5, 0.2, 0.035)                                           # the ship trimming its attitude after cutoff
+rcs_burst(8.7, 9.2, 0.7, -0.5); rcs_burst(9.5, 9.7, 0.5, -0.3); rcs_burst(10.4, 11.0, 0.8, -0.15); rcs_burst(11.35, 11.8, 0.5, -0.1)
 add(clunk(), 0.16, -0.05, start=CONTACT)
 for j in range(6): add(clack(0.8), 0.04, float(np.sin(j * 1.9)) * 0.5, start=CONTACT + 0.06 + 0.045 * j)   # latches
 n = int(0.6 * SR); add(band(noise(n), 1200, 7000) * env(0.02, 0.2, n), 0.03, start=CONTACT + 0.35)          # the seal pressurising
-rcs_burst(5.68, 5.92, 0.5, 0.2, 0.035)                                          # the ship trimming its attitude after cutoff
 
 # ================================================================ 6. 03 + 04: inside the tank (X-ray)
-scan(9.95, True, 0.06, 0.15); scan(X_OUT - 0.2, False, 0.05, -0.15)
+n = int(1.0 * SR); k = np.arange(n) / SR
+add(stereo_noise(200, 3000, 0.7, n) * np.sin(np.pi * k / 1.0) ** 2, 0.016, start=12.55)            # the push-in
+scan(X_IN - 0.05, True, 0.06, 0.15); scan(X_OUT - 0.6, False, 0.05, -0.15)
 add(tone(np.full(N, 60.0), [1, 0.4, 0.3, 0.1]) * lfo(0.5, 0.2) + 0.3 * band(noise(N), 60, 400), 0.024 * X)      # X-ray room tone
-float_ = win(10.3, SETTLE + 0.6, 0.4)
+float_ = win(X_IN + 0.3, SETTLE + 0.6, 0.4)
 add(tone(880 * (1 + 0.004 * np.sin(2 * np.pi * 0.3 * t)), [1, 0.2]) + 0.7 * tone(1318.5 * (1 + 0.005 * np.sin(2 * np.pi * 0.23 * t + 1)), [1]), 0.011 * float_)   # weightless shimmer
 r2 = np.random.default_rng(11)
-for t0 in np.arange(10.4, SETTLE, 0.33):                                       # wobbling blobs: soft low bloops
+for t0 in np.arange(X_IN + 0.4, SETTLE, 0.33):                                 # wobbling blobs: soft low bloops
     tt = t0 + 0.2 * r2.random(); add(bloop(150 + 140 * r2.random(), 90, 0.18), 0.07, r2.uniform(-0.4, 0.4), start=tt)
-for t0 in np.arange(10.6, SETTLE + 1.2, 0.45):                                 # gas bubbles at the intake
+for t0 in np.arange(X_IN + 0.6, SETTLE + 1.2, 0.45):                           # gas bubbles at the intake
     tt = t0 + 0.3 * r2.random(); add(bloop(700 + 500 * r2.random(), 1100 + 400 * r2.random(), 0.05), 0.026, r2.uniform(0.1, 0.5), start=tt)
 add(stereo_noise(60, 400, 0.6) * lfo(0.4, 0.5), 0.02 * float_)               # a low, uneasy bed while nothing settles
-for t0 in (10.65, 10.95):                                                      # WEIGHTLESS warning
+for t0 in (13.45, 13.75):                                                      # WEIGHTLESS warning
     blip(t0, 880, 660, 0.02, 0.3)
-n = int(1.6 * SR); k = np.arange(n) / SR
-add(np.sin(2 * np.pi * np.cumsum(420 + 1100 * (k / 1.6) ** 2) / SR) * pulse(k, 0, 0.1, 1.3, 1.6), 0.014, 0.3, start=13.4)   # teaser riser
+n = int(1.2 * SR); k = np.arange(n) / SR
+add(np.sin(2 * np.pi * np.cumsum(420 + 1100 * (k / 1.2) ** 2) / SR) * pulse(k, 0, 0.1, 0.95, 1.2), 0.014, 0.3, start=15.45)   # teaser riser
 # the push: a firm thrum from the thrusters, held through the transfer
 add(thump(70, 36, 0.3), 0.1, -0.1, start=SETTLE)
 push = stereo_noise(28, 90, 0.3) * lfo(6, 0.25) + 0.5 * hiss(N, 2000, 8000, 0.5) * 0.4
@@ -281,10 +280,10 @@ for i in range(26):
         add(band(noise(int(0.6 * SR)), 1500, 5000) * np.linspace(0, 1, int(0.6 * SR)) ** 2, 0.006, start=t0 - 0.6)   # the whoosh of the fall
     else:
         add(bloop(420 + 300 * rnd(i, 2), 250, 0.08), 0.02, float(rnd(i, 3) - 0.5) * 0.8, start=t0)
-slosh = smooth(span(t, 16.4, 17.2)) * np.exp(-np.maximum(0, t - 18.2) / 1.6) * (t < X_OUT)
+slosh = smooth(span(t, SETTLE + 1.1, SETTLE + 1.9)) * np.exp(-np.maximum(0, t - SETTLE - 2.9) / 1.6) * (t < X_OUT)
 add(stereo_noise(70, 380, 0.5) * (0.6 + 0.4 * np.sin(2 * np.pi * 1.15 * t)) ** 2, 0.05 * slosh)    # the pool sloshing
-for t0 in np.arange(16.6, 19.6, 0.16):                                         # bubbles rising out of the liquid
-    tt = t0 + 0.1 * r2.random(); dens = 1 - span(tt, 16.6, 19.6)
+for t0 in np.arange(SETTLE + 1.3, SETTLE + 4.3, 0.16):                         # bubbles rising out of the liquid
+    tt = t0 + 0.1 * r2.random(); dens = 1 - span(tt, SETTLE + 1.3, SETTLE + 4.3)
     if r2.random() < 0.3 + 0.7 * dens: add(bloop(500 + 300 * r2.random(), 1200 + 500 * r2.random(), 0.04), 0.012 * (0.4 + 0.6 * dens), r2.uniform(-0.3, 0.3), start=tt)
 
 # ================================================================ 7. 04 → 05: the valve opens and the fuel flows across
@@ -292,38 +291,39 @@ add(clack(1.0), 0.07, 0.3, start=VALVE); add(thump(110, 60, 0.07), 0.05, 0.3, st
 n = int(0.4 * SR); add(band(noise(n), 800, 6000) * env(0.005, 0.1, n), 0.035, 0.3, start=VALVE + 0.02)
 flowing = smooth(span(t, FILL0 - 0.1, FILL0 + 0.5)) * (1 - smooth(span(t, FULL, FULL + 0.25)))
 pipe = stereo_noise(140, 1800, 0.5) * lfo(1.3, 0.3) + 0.85 * stereo_noise(50, 240, 0.4) * lfo(7, 0.45)
-inside = (t < X_OUT).astype(float)
+inside = 1 - smooth(span(t, X_OUT - 0.6, X_OUT))
 add(pipe, 0.055 * flowing * inside)
 muff = np.stack([filt(pipe[0], None, 500), filt(pipe[1], None, 500)]) * 1.6
 add(muff, 0.045 * flowing * (1 - inside))                                     # outside: the flow heard through the hull
-n = int(1.9 * SR); k = np.arange(n) / SR
-add(stereo_noise(200, 3000, 0.7, n) * np.sin(np.pi * k / 1.9) ** 2, 0.02, start=21.0)   # the pull-back
+n = int(3.0 * SR); k = np.arange(n) / SR
+add(stereo_noise(200, 3000, 0.7, n) * np.sin(np.pi * k / 3.0) ** 2, 0.02, start=22.3)   # the pull-back and the swing out
 fi = np.floor(fill / 2); idx = np.nonzero(np.diff(fi) > 0)[0] + 1
 ticks_at(t[idx][(t[idx] > FILL0) & (t[idx] < FULL + 0.1)], 3150, 0.009, 0.35)   # the counter climbing
-for wi, pan in ((0, -0.4), (1, 0.4)):                                          # vents puffing in the wide shot and on the approach
+for wi, pan in ((0, -0.4), (1, 0.4)):                                          # vents puffing on the approach, in the wide shot and at the end
     for vi in range(3):
-        g = win(X_OUT, DEPART) if vi == 2 else (win(7.1, 10.0) + win(X_OUT, DEPART))
+        g = win(X_OUT - 0.3, FINAL0) if vi == 2 else (win(ARRIVE, 12.6) + win(X_OUT - 0.3, END_CUT))
         add(band(noise(N), 1800, 8000) * vent_env(t, vi, wi), 0.018 * g, pan)
 add(clack(0.9), 0.05, 0.2, start=FULL); n = int(0.5 * SR); add(band(noise(n), 1000, 7000) * env(0.005, 0.12, n), 0.025, start=FULL + 0.02)
 blip(FULL + 0.05, 1568, 2349, 0.03)                                            # full
 add(np.sin(2 * np.pi * 1568 * np.arange(int(0.9 * SR)) / SR) * env(0.005, 0.35, int(0.9 * SR)) * 0.4, 0.02, start=FULL + 0.05)
 
-# ================================================================ 8. undock and departure toward the Moon
-for j in range(4): add(clack(0.8), 0.04, float(np.cos(j * 1.3)) * 0.5, start=26.02 + 0.04 * j)
-add(thump(75, 40, 0.2), 0.08, 0.15, start=26.08)
-rcs_burst(26.02, 26.62, 0.9, 0.25, 0.045)
-add(reverb(boom(1.2, 52, 28, 0.4, 40, 1000, 0.1, 0.6), 1.4, 0.5, 0.3), 0.14, start=DEPART)       # the engines light
-dep = smooth(span(t, DEPART, DEPART + 0.25)) * win(DEPART, END_CUT, 0.006)
-add(ship_eng * (1 + 0.3 * span(t, DEPART, END_CUT)), 0.12 * dep)
-n = int(1.5 * SR); k = np.arange(n) / SR                                        # a soft chord under the final caption, gone before the loop
+# ================================================================ 8. undock, turn toward the Moon and burn
+for j in range(4): add(clack(0.8), 0.04, float(np.cos(j * 1.3)) * 0.5, start=UNDOCK + 0.02 + 0.04 * j)
+add(thump(75, 40, 0.2), 0.08, 0.15, start=UNDOCK + 0.08)
+rcs_burst(UNDOCK, 27.3, 0.9, 0.25, 0.045)
+rcs_burst(TURN0, 27.55, 0.7, -0.2, 0.04); rcs_burst(27.85, 28.15, 0.6, 0.2, 0.04)   # the turn: start it, stop it
+add(reverb(boom(1.2, 52, 28, 0.4, 40, 1000, 0.1, 0.6), 1.4, 0.5, 0.3), 0.14, start=BURN)        # the engines light
+dep = smooth(span(t, BURN, BURN + 0.25)) * win(BURN, END_CUT, 0.006)
+add(ship_eng * (1 + 0.3 * span(t, BURN, END_CUT)), 0.12 * dep)
+n = int(2.6 * SR); k = np.arange(n) / SR                                        # a soft chord under the final caption, gone before the loop
 padc = sum(a * np.sin(2 * np.pi * f * k + j) for j, (f, a) in enumerate([(73.42, 1.0), (110.0, 0.7), (146.83, 0.55), (185.0, 0.35), (220.0, 0.3)]))
-padc *= smooth(k / 0.25) * (1 - smooth(span(k, 1.05, 1.5)))
+padc *= smooth(k / 0.3) * (1 - smooth(span(k, 1.9, 2.6)))
 add(np.stack([padc, np.roll(padc, 90)]), 0.026, start=FINAL0)
 
 # ================================================================ UI: step changes, chips and badges
-for t0 in (2.65, 6.05, 10.05, 15.05, 21.05):
+for t0 in (2.65, ARRIVE + 0.05, 12.65, 16.85, 22.35):
     blip(t0, 1568, 2093, 0.035)
-for t0 in (7.4, 7.8, 10.8, 11.7, 15.3, 16.0, 19.4, 23.3):
+for t0 in (8.9, 9.5, 13.6, 14.4, 16.95, 17.6, 20.8, 25.2):
     blip(t0, 2637, 3136, 0.013, 0.2)
 
 # ================================================================ master (no fades: the track loops)

@@ -377,7 +377,7 @@ bash add-audio.sh           # redo only the sound on /output/can-it-really-fly-s
 
 # Refueling in Orbit
 
-`refueling-in-orbit/` is a 28-second NovexDynamics explainer on moving super-cold propellant from one spacecraft to another in orbit. It is built on the same pipeline, overlay, fonts and X-ray look as the earlier videos. Everything is procedural:
+`refueling-in-orbit/` is a 30-second NovexDynamics explainer on moving super-cold propellant from one spacecraft to another in orbit. It is built on the same pipeline, overlay, fonts and X-ray look as the earlier videos. Everything is procedural:
 
 - two generic, unmarked ships that are related but distinct: a white lander with a window band and folded legs, and a bare-steel tanker with radiator panels; both have a docking collar on the nose
 - a booster, a launch pad with a tower, and flat ground under a blue sky
@@ -398,11 +398,13 @@ The physics is kept simple:
 
 No company, program or vehicle is named, and no dates, flight counts, quantities or performance figures are given. The counters are illustrative and tagged APPROX., and so is the one temperature shown. A second tanker waits in the distance in the wide shot, so the video does not suggest that one tanker is enough.
 
+After the hook it is one continuous take with no cuts. The camera starts low at the pad and climbs with the rocket as the sky darkens; it follows staging and the turn into orbit, waits while a tanker drifts in and docks, pushes into the tanker as the hull turns to glass, pulls back out over Earth, and watches the lander undock, turn and burn for the Moon. So that the rocket can stay in frame all the way up, the rocket stays put and the world falls away beneath it, and the background shader takes its altitude from the camera.
+
 The hook (0–2 s) opens on the docked ships mid-transfer, and a VHS-style rewind takes the story back to the launch pad. The final 0.4 s replays the hook's lead-in on the same clock, so the last frame matches the first and the video loops.
 
 `audio.py` builds the sound on the same clocks as the picture. Space is silent, so the orbit scenes are scored as if heard through the hull:
 
-- the launches heard as they really sound: ignition, the roar, a thinner roar up high, and the staging bang
+- the launch heard as it really sounds: ignition, the roar thinning out as the rocket climbs, and the staging bang
 - a falling tone under the counter as the ship burns most of its fuel
 - thruster puffs, the docking clunk and its latches, and the seal pressurising
 - the weightless beat: soft bloops for the floating blobs, bubbles at the intake and a WEIGHTLESS warning
@@ -416,7 +418,7 @@ As with the earlier videos, the sound is loop-safe and has no fades.
 cd refueling-in-orbit
 npm install                 # three@0.128.0
 npm run stills              # 5 approval stills → stills/
-bash render-all.sh          # 840 frames → frames/, checks, silent MP4, then sound → /output/refueling-in-orbit.mp4
+bash render-all.sh          # 900 frames → frames/, checks, silent MP4, then sound → /output/refueling-in-orbit.mp4
 bash add-audio.sh           # redo only the sound on /output/refueling-in-orbit-silent.mp4
 ```
 

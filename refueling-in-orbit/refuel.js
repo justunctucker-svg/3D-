@@ -1,5 +1,5 @@
 /* Refueling in Orbit · NovexDynamics
-   Procedural Three.js (r128) scene. Everything on screen is a pure function of the time t (0–28 s):
+   Procedural Three.js (r128) scene. Everything on screen is a pure function of the time t (0–30 s):
    window.__render(t) draws one frame, window.__ready turns true once fonts and the first frame are done.
    Units are metres; y is up (the local vertical). In orbit two generic, unmarked ships dock nose to nose along the x axis
    at the origin: the tanker on the -x side (nose toward +x), the lander on the +x side (nose toward -x). The launch pad
@@ -9,7 +9,7 @@
 (() => {
   'use strict';
   const T = THREE, PI = Math.PI, TAU = PI * 2;
-  const DURATION = 28, R_EARTH = 6.371e6;
+  const DURATION = 30, R_EARTH = 6.371e6;
   const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
   const lerp = (a, b, k) => a + (b - a) * k;
   const smooth = k => { k = clamp(k); return k * k * (3 - 2 * k); };
@@ -42,7 +42,7 @@
 
   // ---------------------------------------------------------------- environment maps (orbit: black sky over a blue Earth; pad: daylight) + lights
   const SUN_DIR = V3(-0.5, 0.45, 0.74).normalize();
-  const MOON_DIR = V3(Math.sin(deg(70)) * Math.cos(deg(-5)), Math.sin(deg(-5)), Math.cos(deg(70)) * Math.cos(deg(-5))).normalize();   // below the local horizontal, still well above Earth's limb
+  const MOON_DIR = V3(Math.sin(deg(216)) * Math.cos(deg(-5)), Math.sin(deg(-5)), Math.cos(deg(216)) * Math.cos(deg(-5))).normalize();   // below the local horizontal, still well above Earth's limb; just right of the final view
   const envMap = (top, band, ground) => {
     const env = new T.Scene(), basic = c => new T.MeshBasicMaterial({ color: c, side: T.DoubleSide });
     env.add(new T.Mesh(new T.SphereGeometry(50, 32, 16), new T.MeshBasicMaterial({ color: top, side: T.BackSide })));
@@ -541,8 +541,10 @@
   const pushArrow = arrow([1.35, 0.68, 0.18], 9, 0.45);
 
   // ---------------------------------------------------------------- clocks
-  const REW0 = 2.0, REW_MID = 2.25, REW1 = 2.6, FINAL0 = 26.0, DEPART = 26.7, END_CUT = 27.6;
-  const LIFT = 3.0, STAGE_T = 4.38, MECO = 5.6, LIFT2 = 5.75, CONTACT = 9.3, SETTLE = 15.3, VALVE = 19.6, FILL0 = 20.0, FULL = 25.6, X_OUT = 22.9;
+  // One continuous take from the pad to the Moon burn. The only cuts are into the rewind and back into the hook.
+  const REW0 = 2.0, REW_MID = 2.25, REW1 = 2.6, FINAL0 = 26.6, END_CUT = 29.6;
+  const IGN = 2.72, STAGE_T = 5.4, MECO = 7.4, ARRIVE = 8.4, CONTACT = 12.0, SETTLE = 16.9, VALVE = 20.9, FILL0 = 21.3, FULL = 26.0;
+  const X_IN = 12.7, X_OUT = 24.5, UNDOCK = 26.65, TURN0 = 27.2, TURN1 = 28.2, BURN = 28.2;
   const isHook = t => t < REW0 || t >= END_CUT;
   // the hook clock h: real time in the hook, run backwards in the first part of the rewind, [-0.4, 0) in the last 0.4 s
   const hookClock = t => t >= END_CUT ? t - DURATION : t < REW0 ? t : lerp(REW0, -1.0, smooth(span(t, REW0, REW_MID)));
@@ -552,71 +554,85 @@
     if (isHook(t)) return HOOK_FUEL(hookClock(t));
     if (t < REW_MID) return lerp(HOOK_FUEL(REW0), 12, smooth(span(t, REW0, REW_MID)));
     if (t < REW1) return lerp(12, 100, smooth(span(t, REW_MID, REW1 - 0.05)));
-    if (t < STAGE_T + 0.08) return 100;
-    if (t < 6.0) return 100 - 88 * Math.pow(span(t, STAGE_T + 0.08, MECO), 0.9);
+    if (t < STAGE_T + 0.1) return 100;
+    if (t < ARRIVE) return 100 - 88 * Math.pow(span(t, STAGE_T + 0.1, MECO), 0.9);
     if (t < FILL0) return 12;
     if (t < FINAL0) return 12 + 88 * smooth(span(t, FILL0, FULL));
-    if (t < DEPART + 0.05) return 100;
-    return 100 - 3 * span(t, DEPART + 0.05, END_CUT);
+    if (t < BURN + 0.05) return 100;
+    return 100 - 3 * span(t, BURN + 0.05, END_CUT);
   };
   const tankerFuelOf = l => 100 - 0.85 * (l - 12);
-  const tankerFuel = t => (isHook(t) || t < REW_MID ? tankerFuelOf(landerFuel(t)) : t < 7.1 ? null : t < FILL0 ? 100 : tankerFuelOf(Math.min(100, landerFuel(Math.min(t, FINAL0 - 0.01)))));
-  const xrayAmt = t => smooth(span(t, 10.0, 10.35)) * (1 - smooth(span(t, X_OUT - 0.2, X_OUT)));
+  const tankerFuel = t => (inHookScene(t) ? tankerFuelOf(landerFuel(t)) : t < ARRIVE ? null : t < FILL0 ? 100 : tankerFuelOf(Math.min(100, landerFuel(Math.min(t, FINAL0 - 0.01)))));
+  const xrayAmt = t => smooth(span(t, X_IN, X_IN + 0.6)) * (1 - smooth(span(t, X_OUT - 0.6, X_OUT)));
   // settling: a gentle steady push from the tanker's aft thrusters, from SETTLE through the transfer
-  const settleOn = t => (isHook(t) || t < REW_MID) ? 1 : (t >= SETTLE && t < FINAL0) ? smooth(span(t, SETTLE, SETTLE + 0.3)) : 0;
-  const drift = t => (t >= SETTLE && t < X_OUT ? 0.07 * Math.pow(t - SETTLE, 2) : 0);   // the stack creeping forward in the X-ray shots
+  const settleOn = t => inHookScene(t) ? 1 : (t >= SETTLE && t < FINAL0) ? smooth(span(t, SETTLE, SETTLE + 0.3)) : 0;
+  const drift = t => (t >= SETTLE ? 0.07 * Math.pow(t - SETTLE, 2) : 0);   // the stack creeping forward under the push (shown by the X-ray camera lagging)
+  function monotone(xs, ys) {
+    const n = xs.length, d = [], m = new Array(n).fill(0);
+    for (let i = 0; i < n - 1; i++) d.push((ys[i + 1] - ys[i]) / (xs[i + 1] - xs[i]));
+    for (let i = 1; i < n - 1; i++) m[i] = d[i - 1] * d[i] <= 0 ? 0 : (d[i - 1] + d[i]) / 2;
+    for (let i = 0; i < n - 1; i++) {
+      if (d[i] === 0) { m[i] = m[i + 1] = 0; continue; }
+      const a = m[i] / d[i], b = m[i + 1] / d[i], q = a * a + b * b;
+      if (q > 9) { const k = 3 / Math.sqrt(q); m[i] = k * a * d[i]; m[i + 1] = k * b * d[i]; }
+    }
+    return x => {
+      if (x <= xs[0]) return ys[0];
+      if (x >= xs[n - 1]) return ys[n - 1];
+      let i = 0; while (x > xs[i + 1]) i++;
+      const h = xs[i + 1] - xs[i], u = (x - xs[i]) / h, u2 = u * u, u3 = u2 * u;
+      return (2 * u3 - 3 * u2 + 1) * ys[i] + (u3 - 2 * u2 + u) * h * m[i] + (-2 * u3 + 3 * u2) * ys[i + 1] + (u3 - u2) * h * m[i + 1];
+    };
+  }
+
+  // ---------------------------------------------------------------- the flight (01): pad to orbit in one take, time-lapsed
+  // The rocket stays put while the world falls away: the lander's root sits at its docking spot the whole time, the pad
+  // sinks below it by the altitude, and the rocket pitches over (nose toward -x) until it lies in its docked attitude.
+  const ALT = monotone([0, 0.4, 1.2, 1.9, 2.7, 3.7, 4.7, 5.8], [0, 0, 55, 800, 15000, 80000, 230000, 400000]);   // s = t - REW1
+  const PITCH = monotone([0, 1.6, 2.4, 3.2, 4.2, 5.0], [0, 0, 16, 45, 80, 90]);
+  const rewAlt = t => lerp(170, 0, easeOut(span(t, REW_MID, REW1 - 0.02)));
+  const flightAlt = t => (t < REW1 ? rewAlt(t) : ALT(t - REW1));
+  const LANDER_DOCK = V3(SHIP_L, 0, 0), TANKER_DOCK = V3(-SHIP_L, 0, 0);
+  const padPos = t => V3(SHIP_L, -B_SHIP - MOUNT - flightAlt(t), 0);
+  const pitchQ = t => new T.Quaternion().setFromAxisAngle(V3(0, 0, 1), deg(t < REW1 ? 0 : PITCH(t - REW1)));
+  const sepB = t => (t < STAGE_T ? 0 : 0.5 * 7 * Math.pow(t - STAGE_T, 2) + 2 * (t - STAGE_T));
 
   // ---------------------------------------------------------------- poses (pure functions of t, also used for particles born earlier)
   const Q_UP = new T.Quaternion(), Q_TANKER = new T.Quaternion().setFromAxisAngle(V3(0, 0, 1), -PI / 2), Q_LANDER = new T.Quaternion().setFromAxisAngle(V3(0, 0, 1), PI / 2);
   const Q_MOON = new T.Quaternion().setFromUnitVectors(V3(0, 1, 0), MOON_DIR);
-  const altPad = t => (t < LIFT ? 0 : 0.5 * 58 * Math.pow(t - LIFT, 2));
-  const altPad2 = t => 0.5 * 58 * Math.pow(Math.max(0, t - LIFT2), 2);
-  const rewAlt = t => lerp(170, 0, easeOut(span(t, REW_MID, REW1 - 0.02)));
-  const CLIMB_Q = new T.Quaternion().setFromAxisAngle(V3(0, 0, 1), deg(-48));
-  const CLIMB_AX = V3(0, 1, 0).applyQuaternion(CLIMB_Q);
-  const ORB_Q = new T.Quaternion().setFromAxisAngle(V3(0, 0, 1), deg(-90)), ORB_AX = V3(1, 0, 0);
   function shot(t) {
     if (inHookScene(t)) return 'hook';
-    if (t < 3.9) return 'pad';
-    if (t < 4.6) return 'climb';
-    if (t < 6.0) return 'orbit1';
-    if (t < 7.1) return 'pad2';
-    if (t < 10.0) return 'rdv';
-    if (t < X_OUT) return 'xray';
-    if (t < FINAL0) return 'wide';
-    if (t < DEPART) return 'undock';
-    return 'depart';
+    if (t < ARRIVE) return 'flight';
+    if (t < FINAL0) return 'orbit';
+    return 'final';
   }
-  const docked = () => ({ t: { pos: V3(-SHIP_L, 0, 0), q: Q_TANKER }, l: { pos: V3(SHIP_L, 0, 0), q: Q_LANDER } });
-  // the climb frame: the stack flies along CLIMB_AX at the origin; the booster falls back after staging
-  const sepB = t => (t < STAGE_T ? 0 : 0.5 * 9 * Math.pow(t - STAGE_T, 2) + 2.5 * (t - STAGE_T));
+  const docked = () => ({ t: { pos: TANKER_DOCK.clone(), q: Q_TANKER }, l: { pos: LANDER_DOCK.clone(), q: Q_LANDER } });
   function poses(t) {
     const s = shot(t), P = { s, lander: null, tanker: null, booster: null };
-    if (s === 'hook' || s === 'xray' || s === 'wide') {
+    if (s === 'hook') { const d = docked(); P.lander = d.l; P.tanker = d.t; }
+    else if (s === 'flight') {
+      P.lander = { pos: LANDER_DOCK.clone(), q: pitchQ(t) };
+      if (t < STAGE_T + 2.6) {
+        const qs = pitchQ(Math.min(t, STAGE_T)), sb = sepB(t);
+        const tumble = new T.Quaternion().setFromAxisAngle(V3(0.3, 0, 1).normalize(), deg(-14) * Math.max(0, t - STAGE_T));
+        P.booster = { pos: LANDER_DOCK.clone().add(V3(0, -B_SHIP - sb, 0).applyQuaternion(qs)).add(V3(0, -0.06 * sb * sb / 10, 0)), q: qs.clone().multiply(tumble) };
+      }
+    } else if (s === 'orbit') {
       const d = docked(); P.lander = d.l; P.tanker = d.t;
-      if (s === 'xray') { const dx = drift(t); P.lander.pos.x += dx; P.tanker.pos.x += dx; }
-    } else if (s === 'pad') {
-      const alt = t < REW1 ? rewAlt(t) : altPad(t);
-      P.booster = { pos: V3(0, MOUNT + alt, 0), q: Q_UP }; P.lander = { pos: V3(0, MOUNT + alt + B_SHIP, 0), q: Q_UP };
-    } else if (s === 'climb') {
-      P.lander = { pos: V3(0, 0, 0), q: CLIMB_Q }; P.booster = { pos: CLIMB_AX.clone().multiplyScalar(-B_SHIP - sepB(t)).add(V3(0.6, -0.3, 0).multiplyScalar(sepB(t) * 0.08)), q: new T.Quaternion().setFromAxisAngle(V3(0, 0, 1), deg(-48 + 6 * span(t, STAGE_T, 4.6))) };
-    } else if (s === 'orbit1') {
-      P.lander = { pos: V3(0, 0, 0), q: ORB_Q };
-    } else if (s === 'pad2') {
-      const alt = altPad2(t);
-      P.booster = { pos: V3(0, MOUNT + alt, 0), q: Q_UP }; P.tanker = { pos: V3(0, MOUNT + alt + B_SHIP, 0), q: Q_UP };
-    } else if (s === 'rdv') {
-      const d = docked(); P.lander = d.l; P.tanker = d.t;
-      const k = span(t, 7.1, CONTACT), gap = 34 * Math.pow(1 - k, 2.2);
-      P.tanker.pos.x -= gap;
-      const wob = (1 - k) * deg(1.6);
-      P.tanker.q = Q_TANKER.clone().multiply(new T.Quaternion().setFromEuler(new T.Euler(wob * Math.sin(t * 0.9), 0, wob * 0.7 * Math.sin(t * 0.7 + 1))));
-    } else if (s === 'undock') {
-      const d = docked(); P.lander = d.l; P.tanker = d.t;
-      P.lander.pos.x += 0.5 * 9 * Math.pow(Math.max(0, t - 26.08), 2);
+      if (t < CONTACT) {
+        const k = span(t, ARRIVE, CONTACT), gap = 230 * Math.pow(1 - k, 3);
+        P.tanker.pos.x -= gap; P.tanker.pos.z -= 0.08 * gap;
+        const wob = (1 - k) * deg(1.6);
+        P.tanker.q = Q_TANKER.clone().multiply(new T.Quaternion().setFromEuler(new T.Euler(wob * Math.sin(t * 0.9), 0, wob * 0.7 * Math.sin(t * 0.7 + 1))));
+      }
     } else {
-      const k = t - DEPART;
-      P.lander = { pos: MOON_DIR.clone().multiplyScalar(0.5 * 26 * k * k + 6 * k), q: Q_MOON };
+      // undock, back off, turn toward the Moon (about the ship's middle), then burn
+      const d = docked(); P.tanker = d.t;
+      const back = 5 * smooth(span(t, UNDOCK, 27.9));                 // back off a few metres, easing to a stop before the turn
+      const q = Q_LANDER.clone().slerp(Q_MOON, smooth(span(t, TURN0, TURN1)));
+      const mid = LANDER_DOCK.clone().add(V3(back, 0, 0)).add(V3(0, 20, 0).applyQuaternion(Q_LANDER));
+      const tb = Math.max(0, t - BURN);
+      P.lander = { pos: mid.sub(V3(0, 20, 0).applyQuaternion(q)).addScaledVector(MOON_DIR, 0.5 * 50 * tb * tb + 2 * tb), q };
     }
     return P;
   }
@@ -628,24 +644,25 @@
       if (g === 'aft') {
         const on = settleOn(t);
         if (on > 0) return on * 0.55 * (0.88 + 0.12 * Math.sin(t * 37 + k));
-        if (s === 'rdv') return flick(7.2, 7.75, 0.7);
+        if (s === 'orbit') return flick(8.7, 9.2, 0.7);
       }
-      if (g === 'nose' && s === 'rdv') return flick(8.15, 8.75, 0.8) + flick(8.95, 9.25, 0.5);
-      if (g === 'aftOut' && s === 'rdv') return (k % 2 ? flick(7.85, 8.05, 0.5) : 0);
+      if (g === 'nose' && s === 'orbit') return flick(10.4, 11.0, 0.8) + flick(11.35, 11.8, 0.5);
+      if (g === 'aftOut' && s === 'orbit') return (k % 2 ? flick(9.5, 9.7, 0.5) : 0);
     } else {
-      if (g === 'nose' && s === 'undock') return flick(26.02, 26.62, 0.9);
-      if (g === 'nose' && s === 'orbit1') return flick(5.68, 5.92, 0.5) * (k % 2);
+      if (g === 'nose' && s === 'flight') return flick(7.55, 7.8, 0.5) * (k % 2);
+      if (g === 'nose' && s === 'final') return flick(UNDOCK, 27.3, 0.9);
+      if (g === 'aftOut' && s === 'final') return k % 2 ? flick(TURN0, 27.55, 0.7) : flick(27.85, 28.15, 0.6);
     }
     return 0;
   }
   const engineAmt = (t, who) => {
     const s = shot(t);
-    if (who === 'booster') return s === 'pad' ? (t < REW1 ? 1 : smooth(span(t, 2.72, 2.95))) : s === 'pad2' ? 1 : s === 'climb' ? 1 - smooth(span(t, STAGE_T - 0.1, STAGE_T)) : 0;
-    if (who === 'lander') return s === 'climb' ? smooth(span(t, STAGE_T + 0.08, STAGE_T + 0.22)) : s === 'orbit1' ? 1 - smooth(span(t, MECO - 0.1, MECO + 0.05)) : s === 'depart' ? smooth(span(t, DEPART, DEPART + 0.12)) : 0;
+    if (who === 'booster') return s === 'flight' ? (t < REW1 ? 1 : smooth(span(t, IGN, IGN + 0.23)) * (1 - smooth(span(t, STAGE_T - 0.1, STAGE_T)))) : 0;
+    if (who === 'lander') return s === 'flight' ? smooth(span(t, STAGE_T + 0.1, STAGE_T + 0.25)) * (1 - smooth(span(t, MECO - 0.1, MECO + 0.05))) : s === 'final' ? smooth(span(t, BURN, BURN + 0.12)) : 0;
     return 0;
   };
 
-  // ---------------------------------------------------------------- camera
+  // ---------------------------------------------------------------- camera: one continuous path (keyframes, monotone per channel)
   const orbitAround = (look, az, el, d) => look.clone().add(V3(d * Math.sin(az) * Math.cos(el), d * Math.sin(el), d * Math.cos(az) * Math.cos(el)));
   const shake = (t, amp) => V3(amp * (Math.sin(t * 37.1) + 0.6 * Math.sin(t * 53.7 + 1.3)), amp * (Math.sin(t * 41.9 + 2.1) + 0.6 * Math.sin(t * 61.3 + 0.2)), amp * 0.7 * Math.sin(t * 47.3 + 0.9));
   const UP_Y = V3(0, 1, 0), UP_X = V3(1, 0, 0);
@@ -655,31 +672,47 @@
   }
   const HOOK_LOOK = V3(2.5, 2.5, 0);
   const hookCam = h => { const k = (h + 1) / 3; return orbitAround(HOOK_LOOK, deg(lerp(21, 17, k)), deg(lerp(9.5, 8.5, k)), lerp(50, 46, k)); };
+  // at the pad: a low camera beside the launch mount, tilting up as the rocket rises
+  const padCam = t => {
+    const alt = flightAlt(t), k = span(t, REW_MID, 3.9), pp = padPos(t);
+    return { pos: pp.clone().add(V3(lerp(150, 132, k), 6, lerp(118, 104, k))), look: pp.clone().add(V3(0, lerp(58, 72, k) + alt * 0.85, 0)) };
+  };
+  const FINAL_POS = V3(95, 20, 80);
+  const FINAL_DIR = V3(Math.sin(deg(219)) * Math.cos(deg(-10)), Math.sin(deg(-10)), Math.cos(deg(219)) * Math.cos(deg(-10)));
+  const p36 = padCam(3.6), p39 = padCam(3.9);
+  // t, camera position, look-at point, roll (0: up is +y; 1: up is +x, the X-ray view with the tanker's tank upright)
+  const CAM_KEYS = [
+    [3.6, p36.pos.toArray(), p36.look.toArray(), 0],
+    [3.9, p39.pos.toArray(), p39.look.toArray(), 0],
+    [4.6, [150, -80, 150], [40, -15, 0], 0],
+    [5.4, [112, -56, 168], [36, -6, 0], 0],
+    [6.4, [84, -22, 152], [28, 4, 0], 0],
+    [7.4, [78, 16, 114], [22, 2, 0], 0],
+    [8.4, [74, 22, 112], [20, 0, 0], 0],
+    [9.4, [68, 20, 98], [8, 0, 0], 0],
+    [10.4, [72, 18, 66], [-7, -1, 0], 0],
+    [12.0, [66, 13, 46], [-5, -1, 0], 0],
+    [12.6, [40, 9, 64], [-14, 0, 0], 0],
+    [13.5, [-SHIP_L + TBOT + 7.5, -1.5, 88], [-SHIP_L + TBOT + 7.5, 0, 0], 1],
+    [16.8, [-SHIP_L + TBOT + 7.5, -1.5, 84], [-SHIP_L + TBOT + 7.5, 0, 0], 1],
+    [22.3, [-SHIP_L + TBOT + 7.5, -1.5, 80], [-SHIP_L + TBOT + 7.5, 0, 0], 1],
+    [23.4, [0, -6, 190], [0, 0, 0], 1],
+    [25.3, [82, 31, 72], [-6, -10, 0], 0],
+    [26.6, [71, 26, 73], [-6, -10, 0], 0],
+    [28.0, [90, 21, 80], FINAL_POS.clone().addScaledVector(FINAL_DIR, 60).toArray(), 0],
+    [END_CUT, FINAL_POS.toArray(), FINAL_POS.clone().addScaledVector(FINAL_DIR, 100).toArray(), 0]
+  ];
+  const camCh = [...Array(7)].map((_, c) => monotone(CAM_KEYS.map(k => k[0]), CAM_KEYS.map(k => c < 3 ? k[1][c] : c < 6 ? k[2][c - 3] : k[3])));
   function camFor(t, P) {
-    const s = P.s;
-    if (s === 'hook') { const h = hookClock(t); return { pos: hookCam(h), look: HOOK_LOOK, up: UP_Y, alt: 400000 }; }
-    if (s === 'pad') {
-      const alt = t < REW1 ? rewAlt(t) : altPad(t), k = span(t, REW_MID, 3.9);
-      const look = V3(0, lerp(58, 72, k) + alt * 0.85, 0);
-      return { pos: V3(lerp(150, 132, k), 6, lerp(118, 104, k)), look, up: UP_Y, alt: 30, sk: shake(t, 0.25 * smooth(span(t, 2.8, 3.1))) };
-    }
-    if (s === 'climb') { const k = span(t, 3.9, 4.6); return { pos: V3(lerp(-74, -64, k), lerp(-52, -46, k), 270), look: V3(lerp(-17, -8, k), lerp(-27, -18, k), 0), up: UP_Y, alt: 55000 }; }
-    if (s === 'orbit1') { const k = smooth(span(t, 4.6, 6.0)); return { pos: V3(lerp(-30, -22, k), lerp(40, 35, k), lerp(105, 97, k)), look: V3(lerp(6, 9, k), -6, 0), up: UP_Y, alt: 400000 }; }
-    if (s === 'pad2') { const k = span(t, 6.0, 7.1), alt = altPad2(t); return { pos: V3(-60, 3, 140), look: V3(0, 60 + alt * 0.75, 0), up: UP_Y, alt: 30, sk: shake(t, 0.18) }; }
-    if (s === 'rdv') { const k = smooth(span(t, 7.1, 10.0)); return { pos: V3(lerp(70, 64, k), lerp(16, 12, k), lerp(46, 40, k)), look: V3(lerp(-8, -4, k), -1, 0), up: UP_Y, alt: 400000, sk: shake(t, 0.06 * Math.exp(-Math.max(0, t - CONTACT) / 0.15) * (t > CONTACT ? 1 : 0)) }; }
-    if (s === 'xray') {
-      // close on the tanker's tank (its aft end down the screen), then pull back to show both ships
-      const pull = smooth(span(t, 21.0, X_OUT)), k = span(t, 10.0, 21.0);
-      const look = V3(lerp(-SHIP_L + TBOT + 7.5, 0, pull), 0, 0);
-      return { pos: look.clone().add(V3(0, lerp(-1.5, -6, pull), lerp(lerp(86, 80, k), 190, pull))), look, up: UP_X, alt: 400000 };
-    }
-    if (s === 'wide') { const k = smooth(span(t, X_OUT, FINAL0)); return { pos: orbitAround(V3(-4, 0, 0), deg(lerp(52, 46, k)), deg(lerp(16, 14, k)), lerp(118, 108, k)), look: V3(-6, -10, 0), up: UP_Y, alt: 400000 }; }
-    if (s === 'undock') { const k = smooth(span(t, FINAL0, DEPART)); return { pos: orbitAround(V3(2, 0, 0), deg(lerp(40, 36, k)), deg(12), lerp(62, 58, k)), look: V3(2, -4, 0), up: UP_Y, alt: 400000 }; }
-    // behind and to the side of the lander, looking past it toward the Moon (upper right)
-    const k = span(t, DEPART, END_CUT), right = MOON_DIR.clone().cross(UP_Y).normalize(), up2 = right.clone().cross(MOON_DIR);
-    const pos = MOON_DIR.clone().multiplyScalar(lerp(-62, -59, k)).addScaledVector(right, 12).addScaledVector(up2, 11);
-    const lookDir = MOON_DIR.clone().addScaledVector(right, -Math.tan(deg(5.5))).addScaledVector(up2, -Math.tan(deg(5.5))).normalize();
-    return { pos, look: pos.clone().addScaledVector(lookDir, 100), up: UP_Y, alt: 400000 };
+    if (P.s === 'hook') { const h = hookClock(t); return { pos: hookCam(h), look: HOOK_LOOK, up: UP_Y, alt: 400000 }; }
+    if (t < 3.6) { const c = padCam(t); return { pos: c.pos, look: c.look, up: UP_Y, alt: c.pos.y - padPos(t).y, sk: shake(t, 0.25 * smooth(span(t, 2.8, 3.1))) }; }
+    const v = camCh.map(f => f(t));
+    const pos = V3(v[0], v[1], v[2]), look = V3(v[3], v[4], v[5]), up = UP_Y.clone().lerp(UP_X, v[6]).normalize();
+    // under the push the stack speeds up: the X-ray camera lags behind it, then catches up as it pulls back
+    const dr = drift(t) * (1 - smooth(span(t, 22.3, 23.4)));
+    pos.x -= dr; look.x -= dr;
+    const alt = t < ARRIVE ? Math.max(5, pos.y - padPos(t).y) : 400000;
+    return { pos, look, up, alt, sk: shake(t, 0.25 * (1 - smooth(span(t, 3.9, 5.0))) + 0.06 * Math.exp(-Math.max(0, t - CONTACT) / 0.15) * (t > CONTACT && t < 12.6 ? 1 : 0)) };
   }
 
   // ---------------------------------------------------------------- UI
@@ -689,25 +722,25 @@
   const SCENES = [
     { a: 0, b: REW0, step: '', huge: true, cap: HOOK_CAP },
     { a: REW0, b: REW1, step: '', cap: '' },
-    { a: REW1, b: 6.0, step: '01 · The problem', cap: 'Reaching orbit burns most of the fuel.' },
-    { a: 6.0, b: 10.0, step: '02 · The tankers', cap: 'Tanker ships bring more fuel and dock.' },
-    { a: 10.0, b: 15.0, step: '03 · The problem inside', x: true, cap: 'In space, liquid doesn’t settle. It floats.' },
-    { a: 15.0, b: 21.0, step: '04 · The trick', x: true, cap: 'A gentle push makes fuel ‘fall’ to the bottom.' },
-    { a: 21.0, b: FINAL0, step: '05 · The transfer', x: true, cap: 'Super-cold liquid flows across. The tank fills.' },
+    { a: REW1, b: ARRIVE, step: '01 · The problem', cap: 'Reaching orbit burns most of the fuel.' },
+    { a: ARRIVE, b: 12.6, step: '02 · The tankers', cap: 'Tanker ships bring more fuel and dock.' },
+    { a: 12.6, b: 16.8, step: '03 · The problem inside', x: true, cap: 'In space, liquid doesn’t settle. It floats.' },
+    { a: 16.8, b: 22.3, step: '04 · The trick', x: true, cap: 'A gentle push makes fuel ‘fall’ to the bottom.' },
+    { a: 22.3, b: FINAL0, step: '05 · The transfer', x: true, cap: 'Super-cold liquid flows across. The tank fills.' },
     { a: FINAL0, b: END_CUT, step: '', big: true, cap: 'Fill up in orbit. Then, the Moon.' },
     { a: END_CUT, b: DURATION + 1, step: '', huge: true, cap: HOOK_CAP }
   ];
   const setText = (el, s) => { if (el.textContent !== s) el.textContent = s; };
   let anchors = {};
   const CALLOUTS = [
-    { text: 'LANDER', on: [[7.4, 9.9]], at: () => anchors.lander, dx: 40, dy: -60 },
-    { text: 'TANKER', on: [[7.8, 9.9]], at: () => anchors.tanker, dx: -40, dy: 55 },
-    { text: 'LIQUID', on: [[10.8, 13.2]], at: () => anchors.blob, dx: 80, dy: -20 },
-    { text: 'FUEL LINE', sub: 'GAS AT THE INTAKE', on: [[11.7, 14.9]], at: () => anchors.pickup, dx: 80, dy: 20 },
-    { text: 'THRUSTERS', on: [[15.3, 17.6]], at: () => anchors.thruster, dx: 75, dy: 10 },
-    { text: 'GENTLE PUSH', on: [[16.0, 18.6]], at: () => anchors.arrowTip, dx: 10, dy: -26 },
-    { text: 'FUEL LINE', sub: 'OPEN', on: [[19.4, 21.6]], at: () => anchors.pickup, dx: 80, dy: 20 },
-    { text: 'LIQUID', sub: 'BELOW −160 °C · APPROX.', on: [[23.3, 25.85]], at: () => anchors.joint, dx: -60, dy: -70 }
+    { text: 'LANDER', on: [[8.9, 12.45]], at: () => anchors.lander, dx: 40, dy: -60 },
+    { text: 'TANKER', on: [[9.5, 12.45]], at: () => anchors.tanker, dx: -40, dy: 55 },
+    { text: 'LIQUID', on: [[13.6, 15.9]], at: () => anchors.blob, dx: 80, dy: -20 },
+    { text: 'FUEL LINE', sub: 'GAS AT THE INTAKE', on: [[14.4, 16.75]], at: () => anchors.pickup, dx: 80, dy: 20 },
+    { text: 'THRUSTERS', on: [[16.95, 19.3]], at: () => anchors.thruster, dx: 75, dy: 10 },
+    { text: 'GENTLE PUSH', on: [[17.6, 20.2]], at: () => anchors.arrowTip, dx: 10, dy: -26 },
+    { text: 'FUEL LINE', sub: 'OPEN', on: [[20.8, 22.9]], at: () => anchors.pickup, dx: 80, dy: 20 },
+    { text: 'LIQUID', sub: 'BELOW −160 °C · APPROX.', on: [[25.2, 26.5]], at: () => anchors.joint, dx: -60, dy: -70 }
   ];
   const calloutRoot = $('callouts');
   CALLOUTS.forEach(c => {
@@ -750,44 +783,47 @@
   function update(t) {
     t = clamp(t, 0, DURATION - 1e-4);
     const P = poses(t), s = P.s, X = xrayAmt(t), hook = s === 'hook', h = hookClock(t);
-    const orbitShot = !(s === 'pad' || s === 'pad2' || s === 'climb');
+    const orbitShot = s !== 'flight';
+    const alt = s === 'flight' ? flightAlt(t) : 400000, aK = s === 'flight' ? smooth(span(alt, 2000, 25000)) : 1;
     const ft = hook ? h : t;                           // effects clock: in the hook it is the hook clock, so the loop seam stays continuous
     glows.reset(); puffs.reset(); smoke.reset();
     shells.forEach(sh => { sh.solid.visible = X < 0.995; sh.ghost.visible = X > 0.005; sh.solid.castShadow = X < 0.5; });
     fadeMats.forEach(m => { m.transparent = X > 0.005; m.opacity = 1 - X; m.depthWrite = X < 0.6; });
     xrayMats.forEach(m => { m.uniforms.uOpacity.value = X; });
     bgMat.uniforms.uX.value = X; rim.intensity = 1.0 * X;
-    padWorld.visible = !orbitShot && s !== 'climb';
-    scene.environment = orbitShot || s === 'climb' ? ENV_ORBIT : ENV_PAD;
-    scene.fog.near = orbitShot || s === 'climb' ? 1e7 : 2500; scene.fog.far = orbitShot || s === 'climb' ? 2e7 : 38000;
+    padWorld.visible = s === 'flight' && alt < 8000;
+    if (padWorld.visible) padWorld.position.copy(padPos(t));
+    scene.environment = aK > 0.5 ? ENV_ORBIT : ENV_PAD;
+    scene.fog.near = lerp(2500, 1e7, aK); scene.fog.far = lerp(38000, 2e7, aK);
     scene.fog.color.copy(HAZE).lerp(NAVY, X);
-    if (orbitShot || s === 'climb') { sun.intensity = 2.7; hemi.color.setHex(0x0a0c12); hemi.groundColor.setHex(0x2c4c86); hemi.intensity = 0.75; }
-    else { sun.intensity = 2.3; hemi.color.setHex(0xa8c0e0); hemi.groundColor.setHex(0x6a5640); hemi.intensity = 0.65; }
+    sun.intensity = lerp(2.3, 2.7, aK); hemi.intensity = lerp(0.65, 0.75, aK);
+    hemi.color.setHex(0xa8c0e0).lerp(new T.Color(0x0a0c12), aK); hemi.groundColor.setHex(0x6a5640).lerp(new T.Color(0x2c4c86), aK);
     [tanker, lander].forEach(sh => { sh.inside.visible = X > 0.02; });
 
     place(lander.root, P.lander); place(tanker.root, P.tanker); place(booster, P.booster);
-    farTanker.root.visible = s === 'wide' || s === 'hook';
+    farTanker.root.visible = s === 'hook' || t >= X_OUT - 0.3;
     // a second tanker waiting its turn far off (more than one tanker trip; no number implied)
-    if (farTanker.root.visible) { farTanker.root.position.set(-346, -103, -336); farTanker.root.quaternion.copy(Q_TANKER); glows.push(V3(-346 + SHIP_L - 1, -103, -336), 2.2, 0.5, 0.4, 6 * (Math.floor(t * 1.25) % 2 ? 1 : 0.15)); }
+    if (farTanker.root.visible) { farTanker.root.position.set(-346, -103, -336); farTanker.root.quaternion.copy(Q_TANKER); glows.push(V3(-346 + SHIP_L - 1, -103, -336), 2.2, 0.5, 0.4, 6 * (Math.floor(ft * 1.25 + 0.5) % 2 ? 1 : 0.15)); }
 
     // engines
     const bA = engineAmt(t, 'booster'), lA = engineAmt(t, 'lander');
-    bPlumeMats.forEach(m => { m.uniforms.uAmt.value = bA * (s === 'climb' ? 0.45 : 1); m.uniforms.uTime.value = t; });
-    bPlume.visible = bA > 0.01; bPlume.scale.set(s === 'climb' ? 1.7 : 1, s === 'climb' ? 1.3 : 1, s === 'climb' ? 1.7 : 1);
+    const thinAir = smooth(span(alt, 3000, 40000));               // the plume balloons and fades as the air thins
+    bPlumeMats.forEach(m => { m.uniforms.uAmt.value = bA * (1 - 0.5 * thinAir); m.uniforms.uTime.value = t; });
+    bPlume.visible = bA > 0.01; bPlume.scale.set(1 + 0.9 * thinAir, 1 + 0.4 * thinAir, 1 + 0.9 * thinAir);
     lPlume.mats.forEach(m => { m.uniforms.uAmt.value = lA; m.uniforms.uTime.value = t; }); lPlume.g.visible = lA > 0.01;
     tPlume.g.visible = false;
     lander.bells.forEach(m => { m.emissiveIntensity = 2.5 * lA; });
     if (lA > 0.01 && P.lander) ENG.forEach((e, i) => { const fl = 0.9 + 0.1 * Math.sin(t * 43 + i * 2.1); glows.push(toWorld(P.lander, e.clone().add(V3(0, -0.6, 0))), 1.5 * lA * fl, 1.35 * lA * fl, 1.2 * lA * fl, 3.4 * lA); });
-    flameLight.intensity = (s === 'pad' || s === 'pad2') ? 6 * bA : 0;
+    flameLight.intensity = padWorld.visible ? 6 * bA * clamp(1 - alt / 600) : 0;
     if (P.booster) flameLight.position.copy(P.booster.pos).add(V3(0, -4, 0));
-    splashMat.opacity = (s === 'pad' || s === 'pad2') ? bA * clamp(1 - (P.booster.pos.y - MOUNT) / 160) * 0.9 : 0;
-    // launch smoke spreading off the pad
-    if ((s === 'pad' || s === 'pad2') && bA > 0.01) {
-      const t0 = s === 'pad' ? 2.72 : 4.6, age0 = t - t0;
+    splashMat.opacity = padWorld.visible ? bA * clamp(1 - alt / 160) * 0.9 : 0;
+    // launch smoke spreading off the pad (it sinks away below as the camera climbs with the rocket)
+    if (padWorld.visible && t > IGN) {
+      const age0 = Math.min(t, STAGE_T) - IGN, pp = padWorld.position;
       for (let j = 0; j < 150; j++) {
-        const born = rand(j, 1) * Math.max(0.01, age0), age = age0 - born; if (age < 0) continue;
+        const born = rand(j, 1) * Math.max(0.01, age0), age = t - IGN - born; if (age < 0 || age > 4.2) continue;
         const ang = rand(j, 2) * TAU, sp = 24 + 40 * rand(j, 3), r = 8 + sp * (1 - Math.exp(-age / 1.2)) * 1.6;
-        const p = V3(Math.cos(ang) * r, 3 + 5 * rand(j, 4) + 6 * age, Math.sin(ang) * r);
+        const p = V3(Math.cos(ang) * r, 3 + 5 * rand(j, 4) + 6 * age, Math.sin(ang) * r).add(pp);
         smoke.push(p, 10 + 14 * age + 8 * rand(j, 5), 0.55 * clamp(age / 0.15) * (1 - span(age, 2.5, 4)), rand(j, 6), 0.5 * Math.exp(-age / 0.4));
       }
     }
@@ -824,7 +860,7 @@
       [['tanker', P.tanker], ['lander', P.lander]].forEach(([who, pose], wi) => {
         if (!pose) return;
         VENTS.forEach((v, vi) => {
-          if (vi === 2 && !(hook || s === 'wide')) return;
+          if (vi === 2 && !(hook || (t >= X_OUT - 0.3 && t < FINAL0))) return;
           const per = 1.1 + 0.5 * rand(vi, wi + 3), LIFE = 1.4;
           for (let j = 0; j < 7; j++) {
             const ph = rand(vi * 13 + j, wi + 21), age = (((ft / LIFE + ph) % 1) + 1) % 1 * LIFE;
@@ -838,7 +874,7 @@
     }
     // the docking seal glows while fuel flows
     const flowing = hook ? 1 : (t >= FILL0 && t < FINAL0) ? smooth(span(t, FILL0, FILL0 + 0.4)) * (1 - smooth(span(t, FULL, FULL + 0.3))) : 0;
-    const sealGlow = (s === 'rdv' ? 0.8 * pulse(t, CONTACT - 0.02, CONTACT + 0.05, CONTACT + 0.3, CONTACT + 0.9) : 0) + flowing * 0.5 * (1 - X);
+    const sealGlow = (s === 'orbit' ? 0.8 * pulse(t, CONTACT - 0.02, CONTACT + 0.05, CONTACT + 0.3, CONTACT + 0.9) : 0) + flowing * 0.5 * (1 - X);
     [tanker, lander].forEach(sh => { sh.glowMat.opacity = sealGlow * (0.85 + 0.15 * Math.sin(ft * 9)); });
 
     // ---- the liquid (X-ray)
@@ -923,7 +959,7 @@
     glows.done(); puffs.done(); smoke.done();
     // shadows follow the subject
     sun.target.position.copy(C.look); sun.position.copy(C.look).addScaledVector(SUN_DIR, 300);
-    const sh = (s === 'pad' || s === 'pad2') ? 90 : s === 'wide' ? 60 : 50;
+    const sh = s === 'flight' ? 90 : (t >= X_OUT - 0.5 || hook) ? 60 : 50;
     if (sun.shadow.camera.right !== sh) { Object.assign(sun.shadow.camera, { left: -sh, right: sh, top: sh, bottom: -sh }); sun.shadow.camera.updateProjectionMatrix(); }
     bgMat.uniforms.uInvProj.value.copy(camera.projectionMatrixInverse);
     bgMat.uniforms.uCamWorld.value.copy(camera.matrixWorld);
@@ -932,7 +968,7 @@
     flashMat.uniforms.uAmt.value = 0;
 
     // the push arrow (04): beside the tanker, pointing the way the ship speeds up
-    const arrK = smooth(span(t, 15.8, 16.2)) * (1 - smooth(span(t, 18.6, 18.9))) * (s === 'xray' ? 1 : 0);
+    const arrK = smooth(span(t, 17.4, 17.8)) * (1 - smooth(span(t, 20.2, 20.5))) * (X > 0.5 ? 1 : 0);
     pushArrow.visible = arrK > 0.01; pushArrow.userData.m.material.opacity = arrK;
     if (arrK > 0.01) { pushArrow.position.set(tanker.root.position.x + 9, 8, 6); pushArrow.rotation.set(0, 0, -PI / 2); pushArrow.scale.set(1, 0.4 + 0.6 * arrK, 1); anchors.arrowTip = V3(tanker.root.position.x + 9 + 9 * (0.4 + 0.6 * arrK), 8, 6); }
 
@@ -947,27 +983,26 @@
     if (hook) { stage = 'TRANSFER'; xfer = 'FLOWING'; }
     else if (t < REW1) { stage = 'REWIND'; xfer = '—'; }
     else if (t < STAGE_T) { stage = 'LAUNCH'; xfer = '—'; }
-    else if (t < 4.6) { stage = 'STAGING'; xfer = '—'; }
-    else if (t < 6.0) { stage = t < MECO ? 'TO ORBIT' : 'IN ORBIT'; xfer = '—'; }
-    else if (t < 7.1) { stage = 'TANKER UP'; xfer = '—'; }
-    else if (t < 10.0) { stage = t < CONTACT ? 'DOCKING' : 'DOCKED'; xfer = 'OFF'; }
-    else if (t < 15.0) { stage = 'COASTING'; xfer = 'HOLD'; }
-    else if (t < 21.0) { stage = 'SETTLING'; xfer = t < VALVE ? 'HOLD' : t < FILL0 ? 'OPEN' : 'FLOWING'; }
+    else if (t < STAGE_T + 0.4) { stage = 'STAGING'; xfer = '—'; }
+    else if (t < ARRIVE) { stage = t < MECO ? 'TO ORBIT' : 'IN ORBIT'; xfer = '—'; }
+    else if (t < 12.6) { stage = t < CONTACT ? 'DOCKING' : 'DOCKED'; xfer = 'OFF'; }
+    else if (t < 16.8) { stage = 'COASTING'; xfer = 'HOLD'; }
+    else if (t < 22.3) { stage = 'SETTLING'; xfer = t < VALVE ? 'HOLD' : t < FILL0 ? 'OPEN' : 'FLOWING'; }
     else if (t < FINAL0) { stage = 'TRANSFER'; xfer = t < FULL ? 'FLOWING' : 'DONE'; }
     else { stage = 'DEPART'; xfer = 'DONE'; }
 
     // overlay
     const sc = SCENES.find(x => t < x.b) || SCENES[SCENES.length - 1];
-    const hard = [0, FINAL0, END_CUT];
+    const hard = [0, END_CUT];
     const fadeIn = hard.includes(sc.a) ? 1 : smooth(span(t, sc.a, sc.a + 0.25));
-    const fadeOut = (sc.b > DURATION || sc.b === REW0 || sc.b === FINAL0 || sc.b === END_CUT) ? 1 : 1 - smooth(span(t, sc.b - 0.2, sc.b));
+    const fadeOut = (sc.b > DURATION || sc.b === REW0 || sc.b === END_CUT) ? 1 : 1 - smooth(span(t, sc.b - 0.2, sc.b));
     setText(ui.step, sc.step); ui.step.classList.toggle('x', !!sc.x && X > 0.5);
     setText(ui.caption, sc.cap); ui.caption.classList.toggle('huge', !!sc.huge); ui.caption.classList.toggle('big', !!sc.big);
     ui.step.style.opacity = ui.caption.style.opacity = (fadeIn * fadeOut).toFixed(3);
     ui.sub.style.opacity = (t < REW0 ? smooth(span(t, 0.8, 1.1)) : 0).toFixed(3);
-    ui.teaser.style.opacity = pulse(t, 13.4, 13.7, 14.8, 15.0).toFixed(3);
-    ui.badge.style.opacity = (smooth(span(t, 10.05, 10.4)) * (1 - smooth(span(t, X_OUT - 0.25, X_OUT - 0.05)))).toFixed(3);
-    const wlOn = pulse(t, 10.6, 10.75, 15.3, 15.6), flick = rand(Math.floor(t * 9), 3) < 0.22 ? 0.25 : 1;
+    ui.teaser.style.opacity = pulse(t, 15.4, 15.7, 16.45, 16.65).toFixed(3);
+    ui.badge.style.opacity = (smooth(span(t, X_IN + 0.15, X_IN + 0.5)) * (1 - smooth(span(t, X_OUT - 0.6, X_OUT - 0.3)))).toFixed(3);
+    const wlOn = pulse(t, 13.4, 13.55, 16.95, 17.25), flick = rand(Math.floor(t * 9), 3) < 0.22 ? 0.25 : 1;
     ui.wl.style.opacity = (wlOn * flick).toFixed(3);
     ui.rewind.style.opacity = (t >= REW0 && t < REW1 ? (Math.floor(t * 6) % 2 ? 1 : 0.55) : 0).toFixed(2);
     ui.rewind.style.transform = `translate(0px, ${headBottom() + 6}px)`;

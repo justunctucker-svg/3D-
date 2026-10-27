@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Renders all 840 frames (28 s × 30 fps) with JOBS parallel Chromium processes (frames interleaved so the heavy
+# Renders all 900 frames (30 s × 30 fps) with JOBS parallel Chromium processes (frames interleaved so the heavy
 # sections are shared), re-renders any frame whose overlay failed to paint, encodes the H.264 video, then adds the
 # synthesized sound (add-audio.sh). Usage: bash render-all.sh   (JOBS=4, SILENT=/output/refueling-in-orbit-silent.mp4, OUT=/output/refueling-in-orbit.mp4)
 set -euo pipefail
 cd "$(dirname "$0")"
 JOBS=${JOBS:-4}
-TOTAL=840
+TOTAL=900
 OUT=${OUT:-/output/refueling-in-orbit.mp4}
 SILENT=${SILENT:-/output/refueling-in-orbit-silent.mp4}
 
