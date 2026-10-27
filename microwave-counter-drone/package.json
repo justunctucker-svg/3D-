@@ -1,0 +1,12 @@
+{
+  "name": "microwave-counter-drone-explainer",
+  "private": true,
+  "description": "NovexDynamics: Microwave Counter-Drone (procedural Three.js, rendered frame by frame with Playwright)",
+  "scripts": {
+    "stills": "node render.js --stills 1.05,5.4,9.0,16.6,21.7 --out stills",
+    "frames": "bash render-all.sh"
+  },
+  "dependencies": {
+    "three": "0.128.0"
+  }
+}
