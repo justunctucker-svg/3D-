@@ -374,3 +374,50 @@ bash add-audio.sh           # redo only the sound on /output/can-it-really-fly-s
 ```
 
 `can-it-really-fly-short.mp4` is the render with sound.
+
+# Refueling in Orbit
+
+`refueling-in-orbit/` is a 28-second NovexDynamics explainer on moving super-cold propellant from one spacecraft to another in orbit. It is built on the same pipeline, overlay, fonts and X-ray look as the earlier videos. Everything is procedural:
+
+- two generic, unmarked ships that are related but distinct: a white lander with a window band and folded legs, and a bare-steel tanker with radiator panels; both have a docking collar on the nose
+- a booster, a launch pad with a tower, and flat ground under a blue sky
+- Earth, the sky, the stars and a small sunlit Moon, all drawn in the background shader from the camera's altitude, so the same shader gives the pale launch sky, the dark upper atmosphere and the black sky over Earth's glowing limb
+
+The X-ray view shows the inside of the tanker's tank:
+
+- while weightless, the liquid floats as wobbling pale-blue blobs and a patchy film on the wall, and gas bubbles crowd the fuel-line intake
+- a gentle push from the aft thrusters makes the blobs fall and merge into a pool, the bubbles rise out of it, and the intake ends up under the liquid
+- the valve opens, liquid runs up the line and through the docking collar, and the lander's tank fills from its own settled end
+
+The physics is kept simple:
+
+- reaching orbit uses most of a rocket's propellant
+- in microgravity, liquids float and cling to surfaces instead of settling
+- a small, steady push settles them at the "bottom" of the tank so they can be drawn into a line
+- cryogenic propellant is very cold and boils off as vapour
+
+No company, program or vehicle is named, and no dates, flight counts, quantities or performance figures are given. The counters are illustrative and tagged APPROX., and so is the one temperature shown. A second tanker waits in the distance in the wide shot, so the video does not suggest that one tanker is enough.
+
+The hook (0–2 s) opens on the docked ships mid-transfer, and a VHS-style rewind takes the story back to the launch pad. The final 0.4 s replays the hook's lead-in on the same clock, so the last frame matches the first and the video loops.
+
+`audio.py` builds the sound on the same clocks as the picture. Space is silent, so the orbit scenes are scored as if heard through the hull:
+
+- the launches heard as they really sound: ignition, the roar, a thinner roar up high, and the staging bang
+- a falling tone under the counter as the ship burns most of its fuel
+- thruster puffs, the docking clunk and its latches, and the seal pressurising
+- the weightless beat: soft bloops for the floating blobs, bubbles at the intake and a WEIGHTLESS warning
+- the push: a thruster thrum, splashes as the blobs land, the pool sloshing and bubbles rising out of it
+- the valve, the propellant rushing through the line, the counter ticking up, vent puffs, and a chime when the tank is full
+- undocking, the engines lighting for the Moon, and a soft chord under the final caption
+
+As with the earlier videos, the sound is loop-safe and has no fades.
+
+```bash
+cd refueling-in-orbit
+npm install                 # three@0.128.0
+npm run stills              # 5 approval stills → stills/
+bash render-all.sh          # 840 frames → frames/, checks, silent MP4, then sound → /output/refueling-in-orbit.mp4
+bash add-audio.sh           # redo only the sound on /output/refueling-in-orbit-silent.mp4
+```
+
+`refueling-in-orbit-short.mp4` is the render with sound.

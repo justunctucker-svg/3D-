@@ -751,6 +751,7 @@
     t = clamp(t, 0, DURATION - 1e-4);
     const P = poses(t), s = P.s, X = xrayAmt(t), hook = s === 'hook', h = hookClock(t);
     const orbitShot = !(s === 'pad' || s === 'pad2' || s === 'climb');
+    const ft = hook ? h : t;                           // effects clock: in the hook it is the hook clock, so the loop seam stays continuous
     glows.reset(); puffs.reset(); smoke.reset();
     shells.forEach(sh => { sh.solid.visible = X < 0.995; sh.ghost.visible = X > 0.005; sh.solid.castShadow = X < 0.5; });
     fadeMats.forEach(m => { m.transparent = X > 0.005; m.opacity = 1 - X; m.depthWrite = X < 0.6; });
@@ -795,11 +796,11 @@
     [['tanker', tanker, P.tanker], ['lander', lander, P.lander]].forEach(([who, sh, pose]) => {
       if (!pose) return;
       RCS.forEach((n, k) => {
-        const a = rcsAmt(t, who, k); if (a < 0.005 && !(n.g === 'aft' && who === 'tanker' && settleOn(t) > 0)) return;
+        const a = rcsAmt(ft, who, k); if (a < 0.005 && !(n.g === 'aft' && who === 'tanker' && settleOn(ft) > 0)) return;
         const pw = toWorld(pose, n.p), dw = dirWorld(pose, n.d);
         if (a > 0.01) glows.push(pw.clone().addScaledVector(dw, 0.3), 0.9 * a, 1.0 * a, 1.25 * a, 0.9 + 0.5 * a);
         for (let j = 0; j < 4 && si < STREAK_N; j++, si++) {
-          const L = 0.16, age = (((t / L + rand(k * 7 + j, 5)) % 1) + 1) % 1 * L;
+          const L = 0.16, age = (((ft / L + rand(k * 7 + j, 5)) % 1) + 1) % 1 * L;
           const off = V3(rand(si, 6) - 0.5, rand(si, 8) - 0.5, rand(si, 9) - 0.5).multiplyScalar(0.3);
           const head = pw.clone().add(off).addScaledVector(dw, 0.4 + age * 30);
           qa.setFromUnitVectors(X1, dw); mtx.compose(head, qa, V3(1.6 + 1.6 * a, 0.12, 0.12)); streaks.setMatrixAt(si, mtx);
@@ -807,7 +808,7 @@
         }
         const LIFE = 0.7;
         for (let j = 0; j < 12; j++) {
-          const ph = rand(k * 31 + j + (who === 'lander' ? 500 : 0), 7), age = (((t / LIFE + ph) % 1) + 1) % 1 * LIFE, birth = t - age;
+          const ph = rand(k * 31 + j + (who === 'lander' ? 500 : 0), 7), age = (((ft / LIFE + ph) % 1) + 1) % 1 * LIFE, birth = ft - age;
           const ab = rcsAmt(birth, who, k); if (ab < 0.02 || shot(birth) !== s) continue;
           const pb = poses(birth)[who]; if (!pb) continue;
           const pwb = toWorld(pb, n.p), dwb = dirWorld(pb, n.d);
@@ -826,8 +827,8 @@
           if (vi === 2 && !(hook || s === 'wide')) return;
           const per = 1.1 + 0.5 * rand(vi, wi + 3), LIFE = 1.4;
           for (let j = 0; j < 7; j++) {
-            const ph = rand(vi * 13 + j, wi + 21), age = (((t / LIFE + ph) % 1) + 1) % 1 * LIFE;
-            const burst = Math.floor((t - age) / per + rand(vi, wi)), on = rand(burst, vi + wi * 7) < 0.6 ? 1 : 0; if (!on) continue;
+            const ph = rand(vi * 13 + j, wi + 21), age = (((ft / LIFE + ph) % 1) + 1) % 1 * LIFE;
+            const burst = Math.floor((ft - age) / per + rand(vi, wi)), on = rand(burst, vi + wi * 7) < 0.6 ? 1 : 0; if (!on) continue;
             const pw = toWorld(pose, v.p), dw = dirWorld(pose, v.d);
             const spread = V3(rand(j, vi + 40) - 0.5, rand(j, vi + 50) - 0.5, rand(j, vi + 60) - 0.5).multiplyScalar(1.6 * age);
             puffs.push(pw.addScaledVector(dw, 0.4 + 3.2 * (1 - Math.exp(-age / 0.5))).add(spread), (0.5 + 2.4 * age) * (vi === 2 ? 1.3 : 1), 0.32 * Math.pow(1 - age / LIFE, 1.3) * (1 - X), rand(vi, j + wi));
@@ -838,7 +839,7 @@
     // the docking seal glows while fuel flows
     const flowing = hook ? 1 : (t >= FILL0 && t < FINAL0) ? smooth(span(t, FILL0, FILL0 + 0.4)) * (1 - smooth(span(t, FULL, FULL + 0.3))) : 0;
     const sealGlow = (s === 'rdv' ? 0.8 * pulse(t, CONTACT - 0.02, CONTACT + 0.05, CONTACT + 0.3, CONTACT + 0.9) : 0) + flowing * 0.5 * (1 - X);
-    [tanker, lander].forEach(sh => { sh.glowMat.opacity = sealGlow * (0.85 + 0.15 * Math.sin(t * 9)); });
+    [tanker, lander].forEach(sh => { sh.glowMat.opacity = sealGlow * (0.85 + 0.15 * Math.sin(ft * 9)); });
 
     // ---- the liquid (X-ray)
     if (X > 0.02) {
