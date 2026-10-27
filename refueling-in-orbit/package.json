@@ -1,0 +1,12 @@
+{
+  "name": "refueling-in-orbit-explainer",
+  "private": true,
+  "description": "NovexDynamics: Refueling in Orbit (procedural Three.js, rendered frame by frame with Playwright)",
+  "scripts": {
+    "stills": "node render.js --stills 1.0,3.3,12.4,18.8,27.0 --out stills",
+    "frames": "bash render-all.sh"
+  },
+  "dependencies": {
+    "three": "0.128.0"
+  }
+}
