@@ -1,0 +1,12 @@
+{
+  "name": "can-it-really-fly-explainer",
+  "private": true,
+  "description": "NovexDynamics: Can It Really Fly? (procedural Three.js, rendered frame by frame with Playwright)",
+  "scripts": {
+    "stills": "node render.js --stills 1.0,7.6,12.5,18.6,25.5 --out stills",
+    "frames": "bash render-all.sh"
+  },
+  "dependencies": {
+    "three": "0.128.0"
+  }
+}
